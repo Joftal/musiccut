@@ -141,13 +141,6 @@ export const Sidebar: React.FC = () => {
                 : '不可用'}
             </span>
           </div>
-          {accelerationOptions?.onnx_gpu_available && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="px-1.5 py-0.5 bg-green-600/20 text-green-500 rounded text-xs">
-                GPU
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </aside>
