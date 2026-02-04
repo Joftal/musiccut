@@ -60,11 +60,11 @@
       <br>Rust
     </td>
     <td align="center" width="96">
-      <img src="https://www.vectorlogo.zone/logos/taaborern/taaborern-icon.svg" width="48" height="48" alt="Tauri" />
+      <img src="https://skillicons.dev/icons?i=tauri" width="48" height="48" alt="Tauri" />
       <br>Tauri
     </td>
     <td align="center" width="96">
-      <img src="https://skillicons.dev/icons?i=sqlite" width="48" height="48" alt="SQLite" />
+      <img src="https://www.sqlite.org/images/sqlite370_banner.gif" width="64" height="48" alt="SQLite" />
       <br>SQLite
     </td>
   </tr>
@@ -100,7 +100,7 @@
 
 ```powershell
 # 1️⃣ 克隆项目
-git clone https://github.com/your-repo/musiccut.git
+git clone https://github.com/Joftal/musiccut.git
 cd musiccut
 
 # 2️⃣ 一键安装依赖
