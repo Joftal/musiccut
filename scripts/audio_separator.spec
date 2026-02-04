@@ -1,7 +1,4 @@
 # -*- mode: python ; coding: utf-8 -*-
-# audio-separator PyInstaller spec file
-# 仅支持 MDX-Net ONNX 模型，不需要 PyTorch
-
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
