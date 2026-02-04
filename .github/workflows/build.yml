@@ -47,6 +47,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+        continue-on-error: true
 
       - name: 📦 Install Node dependencies
         run: npm ci
@@ -159,11 +160,6 @@ jobs:
             Copy-Item -Recurse "src-tauri\resources\audio-separator" "$outputDir\audio-separator"
           }
 
-          # Create run script
-          '@echo off
-          cd /d "%~dp0"
-          start "" "MusicCut.exe"' | Out-File -FilePath "$outputDir\Run MusicCut.bat" -Encoding ASCII
-
           # Create 7z archive
           7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
 
@@ -213,11 +209,6 @@ jobs:
 
           或者将 FFmpeg 添加到系统 PATH 环境变量。
           ' | Out-File -FilePath "$outputDir\README-Lite.txt" -Encoding UTF8
-
-          # Create run script
-          '@echo off
-          cd /d "%~dp0"
-          start "" "MusicCut.exe"' | Out-File -FilePath "$outputDir\Run MusicCut.bat" -Encoding ASCII
 
           # Create 7z archive
           7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
@@ -283,7 +274,7 @@ jobs:
 
             1. 下载对应版本的 `.7z` 文件
             2. 解压到任意目录
-            3. 运行 `MusicCut.exe` 或 `Run MusicCut.bat`
+            3. 运行 `MusicCut.exe`
 
             ## ⚠️ Lite 版本注意
 

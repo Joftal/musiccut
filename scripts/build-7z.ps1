@@ -192,7 +192,7 @@ $runScript = @"
 cd /d "%~dp0"
 start "" "MusicCut.exe"
 "@
-$runScript | Out-File -FilePath (Join-Path $OutputDir "Run MusicCut.bat") -Encoding ASCII
+# $runScript | Out-File -FilePath (Join-Path $OutputDir "Run MusicCut.bat") -Encoding ASCII
 
 Write-Host "[OK] Package assembled" -ForegroundColor Green
 
@@ -232,5 +232,5 @@ Write-Host "Size:   $archiveSizeMB MB" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Usage:" -ForegroundColor Cyan
 Write-Host "  1. Extract the 7z file to any folder" -ForegroundColor Gray
-Write-Host "  2. Run 'MusicCut.exe' or 'Run MusicCut.bat'" -ForegroundColor Gray
+Write-Host "  2. Run 'MusicCut.exe'" -ForegroundColor Gray
 Write-Host ""
