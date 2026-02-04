@@ -19,10 +19,12 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: 📥 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: 🏷️ Get version
+      - name: Get version
         id: version
         shell: bash
         run: |
@@ -34,24 +36,44 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
-      - name: 📗 Setup Node.js
+      - name: Get changelog
+        id: changelog
+        shell: bash
+        run: |
+          # 获取上一个 tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            # 如果没有上一个 tag，获取所有提交
+            COMMITS=$(git log --pretty=format:"- %s" -20)
+          else
+            # 获取两个 tag 之间的提交
+            COMMITS=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD)
+          fi
+
+          # 写入到文件避免多行问题
+          echo "$COMMITS" > changelog.txt
+          echo "Generated changelog:"
+          cat changelog.txt
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: 🦀 Setup Rust
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: 🔧 Rust cache
+      - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
         continue-on-error: true
 
-      - name: 📦 Install Node dependencies
+      - name: Install Node dependencies
         run: npm ci
 
-      - name: 🎬 Download FFmpeg
+      - name: Download FFmpeg
         shell: pwsh
         run: |
           $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
@@ -77,7 +99,7 @@ jobs:
           Write-Host "FFmpeg ready:"
           Get-ChildItem "ffmpeg"
 
-      - name: 🎵 Download fpcalc (Chromaprint)
+      - name: Download fpcalc (Chromaprint)
         shell: pwsh
         run: |
           $fpcalcUrl = "https://github.com/acoustid/chromaprint/releases/download/v1.6.0/chromaprint-fpcalc-1.6.0-windows-x86_64.zip"
@@ -100,12 +122,12 @@ jobs:
           Write-Host "fpcalc ready:"
           Get-ChildItem "ffmpeg"
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12.9'
 
-      - name: 🤖 Build audio-separator package
+      - name: Build audio-separator package
         shell: pwsh
         run: |
           Write-Host "Creating Python virtual environment..."
@@ -123,7 +145,7 @@ jobs:
           Write-Host "audio-separator package ready:"
           Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
 
-      - name: 📥 Download MDX-Net model and config files
+      - name: Download MDX-Net model and config files
         shell: pwsh
         run: |
           $modelDir = "models\audio-separator\mdx-inst-hq3"
@@ -145,20 +167,20 @@ jobs:
           Write-Host "Model and config files downloaded:"
           Get-ChildItem $modelDir
 
-      - name: 🔨 Build Tauri application
+      - name: Build Tauri application
         shell: pwsh
         run: |
           $env:PATH = "$PWD\ffmpeg;$env:PATH"
           npm run tauri:build
 
-      - name: 📦 Create Full Package (with FFmpeg)
+      - name: Create FFmpeg Package
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $outputDir = "dist\MusicCut-Full"
-          $archiveName = "MusicCut_${version}_x64_Full.7z"
+          $outputDir = "dist\MusicCut-FFmpeg"
+          $archiveName = "MusicCut_${version}_x64_FFmpeg.7z"
 
-          Write-Host "Creating full package..."
+          Write-Host "Creating FFmpeg package..."
 
           # Create output directory
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
@@ -187,17 +209,17 @@ jobs:
           # Create 7z archive
           7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
 
-          Write-Host "Full package created: dist\$archiveName"
+          Write-Host "FFmpeg package created: dist\$archiveName"
           Get-ChildItem "dist\*.7z"
 
-      - name: 📦 Create Lite Package (without FFmpeg)
+      - name: Create NoFFmpeg Package
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $outputDir = "dist\MusicCut-Lite"
-          $archiveName = "MusicCut_${version}_x64_Lite.7z"
+          $outputDir = "dist\MusicCut-NoFFmpeg"
+          $archiveName = "MusicCut_${version}_x64_NoFFmpeg.7z"
 
-          Write-Host "Creating lite package (without FFmpeg)..."
+          Write-Host "Creating NoFFmpeg package..."
 
           # Create output directory
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
@@ -220,27 +242,13 @@ jobs:
             Copy-Item -Recurse "src-tauri\resources\audio-separator" "$outputDir\audio-separator"
           }
 
-          # Create README for lite version
-          'MusicCut Lite 版本
-          ==================
-
-          此版本不包含 FFmpeg，需要用户自行安装。
-
-          安装 FFmpeg:
-          1. 下载 FFmpeg: https://www.gyan.dev/ffmpeg/builds/
-          2. 下载 fpcalc: https://acoustid.org/chromaprint
-          3. 将 ffmpeg.exe, ffprobe.exe, fpcalc.exe 放入程序目录下的 ffmpeg 文件夹
-
-          或者将 FFmpeg 添加到系统 PATH 环境变量。
-          ' | Out-File -FilePath "$outputDir\README-Lite.txt" -Encoding UTF8
-
           # Create 7z archive
           7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
 
-          Write-Host "Lite package created: dist\$archiveName"
+          Write-Host "NoFFmpeg package created: dist\$archiveName"
           Get-ChildItem "dist\*.7z"
 
-      - name: 📋 List artifacts
+      - name: List artifacts
         shell: pwsh
         run: |
           Write-Host "=== Build Artifacts ==="
@@ -249,21 +257,28 @@ jobs:
             Write-Host "$($_.Name) - $sizeMB MB"
           }
 
-      - name: 📤 Upload Full Package
+      - name: Upload FFmpeg Package
         uses: actions/upload-artifact@v4
         with:
-          name: MusicCut_${{ steps.version.outputs.version }}_x64_Full.7z
-          path: dist/*_Full.7z
+          name: MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg
+          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg.7z
           compression-level: 0
           retention-days: 30
 
-      - name: 📤 Upload Lite Package
+      - name: Upload NoFFmpeg Package
         uses: actions/upload-artifact@v4
         with:
-          name: MusicCut_${{ steps.version.outputs.version }}_x64_Lite.7z
-          path: dist/*_Lite.7z
+          name: MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg
+          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg.7z
           compression-level: 0
           retention-days: 30
+
+      - name: Upload changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog.txt
+          retention-days: 1
 
   release:
     needs: build
@@ -271,12 +286,25 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - name: 📥 Download artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: 📋 List downloaded artifacts
+      - name: Read changelog
+        id: changelog
+        run: |
+          if [ -f "artifacts/changelog/changelog.txt" ]; then
+            CHANGELOG=$(cat artifacts/changelog/changelog.txt)
+          else
+            CHANGELOG="- Initial release"
+          fi
+          # 使用 EOF 处理多行
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: List downloaded artifacts
         run: |
           echo "=== Downloaded Artifacts ==="
           find artifacts -type f -name "*.7z" | while read f; do
@@ -284,30 +312,36 @@ jobs:
             echo "$(basename $f) - $size"
           done
 
-      - name: 🚀 Create Release
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: MusicCut ${{ github.ref_name }}
           body: |
-            ## 📦 下载说明
+            ## 更新日志
+
+            ${{ steps.changelog.outputs.content }}
+
+            ---
+
+            ## 下载说明
 
             | 版本 | 说明 | 适用场景 |
             |:---:|:---|:---|
-            | **Full** | 完整版，包含所有依赖 | 推荐大多数用户使用 |
-            | **Lite** | 精简版，不含 FFmpeg | 已安装 FFmpeg 的用户 |
+            | **FFmpeg** | 完整版，包含 FFmpeg | 推荐大多数用户使用 |
+            | **NoFFmpeg** | 精简版，不含 FFmpeg | 已安装 FFmpeg 的用户 |
 
-            ## 🚀 使用方法
+            ## 使用方法
 
             1. 下载对应版本的 `.7z` 文件
             2. 解压到任意目录
             3. 运行 `MusicCut.exe`
 
-            ## ⚠️ Lite 版本注意
+            ## NoFFmpeg 版本说明
 
-            Lite 版本需要自行安装 FFmpeg：
+            NoFFmpeg 版本需要自行安装 FFmpeg：
             - 下载 [FFmpeg](https://www.gyan.dev/ffmpeg/builds/)
             - 下载 [fpcalc](https://acoustid.org/chromaprint)
-            - 将可执行文件放入程序目录的 `ffmpeg` 文件夹
+            - 将 `ffmpeg.exe`、`ffprobe.exe`、`fpcalc.exe` 放入程序目录的 `ffmpeg` 文件夹，或添加到系统 PATH
           files: |
             artifacts/**/*.7z
           draft: false
