@@ -1,0 +1,57 @@
+[package]
+name = "musiccut"
+version = "1.0.0"
+description = "音频指纹视频剪辑工具"
+authors = ["MusicCut Team"]
+license = "MIT"
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.5", features = [ "protocol-asset", "shell-sidecar", "shell-execute",
+    "shell-open",
+    "dialog-all",
+    "fs-all",
+    "path-all",
+    "process-all",
+    "window-all"
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.30", features = ["bundled"] }
+uuid = { version = "1.0", features = ["v4"] }
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+walkdir = "2.4"
+rayon = "1.8"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+once_cell = "1.19"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+num_cpus = "1.16"
+sha2 = "0.10"
+hex = "0.4"
+tempfile = "3.9"
+dirs = "5.0"
+lazy_static = "1.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Pipes"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

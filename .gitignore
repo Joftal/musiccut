@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+target/
+src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Application data
+/data/
+*.db
+*.db-journal
+
+# Temporary files
+temp/
+*.tmp
+
+# FFmpeg binaries (download manually)
+ffmpeg/*.exe
+
+# Python virtual environment
+tools/venv/
+
+# AI models (auto-downloaded)
+models/audio-separator/
+
+# Packaged resources
+src-tauri/resources/audio-separator/
+
+# Claude Code local config
+.claude/settings.local.json

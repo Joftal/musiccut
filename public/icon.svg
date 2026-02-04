@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0369a1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="20" fill="url(#grad)"/>
+  <g fill="white">
+    <!-- Music note -->
+    <circle cx="35" cy="65" r="8"/>
+    <rect x="41" y="30" width="4" height="35"/>
+    <path d="M45 30 Q60 25 60 40 Q60 50 45 45" fill="white"/>
+    <!-- Scissors -->
+    <circle cx="70" cy="45" r="6" fill="none" stroke="white" stroke-width="3"/>
+    <circle cx="70" cy="65" r="6" fill="none" stroke="white" stroke-width="3"/>
+    <line x1="64" y1="48" x2="55" y2="55" stroke="white" stroke-width="3"/>
+    <line x1="64" y1="62" x2="55" y2="55" stroke="white" stroke-width="3"/>
+  </g>
+</svg>

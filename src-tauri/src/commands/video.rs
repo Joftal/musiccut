@@ -1,0 +1,945 @@
+// 视频命令
+
+use crate::config::{self, AccelerationMode};
+use crate::database;
+use crate::error::{AppError, AppResult};
+use crate::utils::{VideoInfo, Segment, SegmentStatus, SeparationResult, CutParams, generate_id, hidden_command};
+use crate::video::ffmpeg;
+use crate::audio::{separator, fingerprint};
+use crate::audio::separator::GpuCapabilities;
+use tauri::Window;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::process::Child;
+use tracing::{info, error};
+use rayon::prelude::*;
+
+// 按项目 ID 管理的取消标志，支持多个并发操作互不干扰
+lazy_static::lazy_static! {
+    static ref CANCEL_FLAGS: Mutex<HashMap<String, Arc<AtomicBool>>> = Mutex::new(HashMap::new());
+    // 按项目 ID 管理的子进程句柄，支持即时取消（直接 kill 进程）
+    static ref CHILD_PROCESSES: Mutex<HashMap<String, Vec<Arc<Mutex<Option<Child>>>>>> = Mutex::new(HashMap::new());
+}
+
+// GPU 能力缓存（整个应用生命周期只检测一次）
+static GPU_CAPS_CACHE: std::sync::OnceLock<GpuCapabilities> = std::sync::OnceLock::new();
+
+/// RAII 守卫：作用域结束时自动清理取消标志，防止内存泄漏
+struct CancelFlagGuard {
+    project_id: String,
+}
+
+impl CancelFlagGuard {
+    fn new(project_id: String) -> Self {
+        Self { project_id }
+    }
+}
+
+impl Drop for CancelFlagGuard {
+    fn drop(&mut self) {
+        remove_cancel_flag(&self.project_id);
+        clear_child_processes(&self.project_id);
+    }
+}
+
+/// 获取或创建项目的取消标志
+fn get_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
+    let mut flags = CANCEL_FLAGS.lock()
+        .unwrap_or_else(|poisoned| {
+            tracing::warn!("取消标志 Mutex 被毒化，尝试恢复");
+            poisoned.into_inner()
+        });
+    flags
+        .entry(project_id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+/// 重置项目的取消标志（开始新操作时调用）
+fn reset_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
+    let mut flags = CANCEL_FLAGS.lock()
+        .unwrap_or_else(|poisoned| {
+            tracing::warn!("取消标志 Mutex 被毒化，尝试恢复");
+            poisoned.into_inner()
+        });
+    let flag = flags
+        .entry(project_id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+    flag.store(false, Ordering::SeqCst);
+    flag.clone()
+}
+
+/// 清理项目的取消标志（项目删除或操作完成后可选调用）
+pub fn remove_cancel_flag(project_id: &str) {
+    let mut flags = CANCEL_FLAGS.lock()
+        .unwrap_or_else(|poisoned| {
+            tracing::warn!("取消标志 Mutex 被毒化，尝试恢复");
+            poisoned.into_inner()
+        });
+    flags.remove(project_id);
+}
+
+/// 注册子进程到项目（用于即时取消）
+pub fn register_child_process(project_id: &str, child: Child) -> Arc<Mutex<Option<Child>>> {
+    let handle = Arc::new(Mutex::new(Some(child)));
+    let mut processes = CHILD_PROCESSES.lock()
+        .unwrap_or_else(|poisoned| {
+            tracing::warn!("子进程 Mutex 被毒化，尝试恢复");
+            poisoned.into_inner()
+        });
+    processes.entry(project_id.to_string())
+        .or_insert_with(Vec::new)
+        .push(handle.clone());
+    handle
+}
+
+/// 清理项目的所有子进程句柄
+pub fn clear_child_processes(project_id: &str) {
+    let mut processes = CHILD_PROCESSES.lock()
+        .unwrap_or_else(|poisoned| {
+            tracing::warn!("子进程 Mutex 被毒化，尝试恢复");
+            poisoned.into_inner()
+        });
+    processes.remove(project_id);
+}
+
+/// kill 项目的所有子进程
+fn kill_child_processes(project_id: &str) {
+    let processes = CHILD_PROCESSES.lock()
+        .unwrap_or_else(|poisoned| {
+            tracing::warn!("子进程 Mutex 被毒化，尝试恢复");
+            poisoned.into_inner()
+        });
+    if let Some(handles) = processes.get(project_id) {
+        for handle in handles {
+            if let Ok(mut guard) = handle.lock() {
+                if let Some(ref mut child) = *guard {
+                    info!("正在终止子进程: project_id={}", project_id);
+                    let _ = child.kill();
+                }
+            }
+        }
+    }
+}
+
+/// 分析视频
+#[tauri::command]
+pub async fn analyze_video(path: String) -> AppResult<VideoInfo> {
+    let video_path = Path::new(&path);
+    if !video_path.exists() {
+        return Err(AppError::NotFound(format!("视频文件不存在: {}", path)));
+    }
+
+    ffmpeg::get_video_info(&path)
+}
+
+/// 提取音频
+#[tauri::command]
+pub async fn extract_audio(
+    window: Window,
+    video_path: String,
+    output_path: String,
+    project_id: Option<String>,
+) -> AppResult<String> {
+    info!("=== 开始提取音频 ===");
+    info!("视频路径: {}", video_path);
+    info!("输出路径: {}", output_path);
+
+    // 检查视频文件是否存在
+    if !Path::new(&video_path).exists() {
+        error!("视频文件不存在: {}", video_path);
+        return Err(AppError::NotFound(format!("视频文件不存在: {}", video_path)));
+    }
+
+    let project_id_clone = project_id.clone();
+    let _ = window.emit("extract-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始提取音频...",
+        "project_id": project_id
+    }));
+
+    ffmpeg::extract_audio_track(
+        &video_path,
+        &output_path,
+        Some(Box::new(move |progress| {
+            let _ = window.emit("extract-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("提取中: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+    )?;
+
+    info!("音频提取完成: {}", output_path);
+    Ok(output_path)
+}
+
+/// 人声分离
+#[tauri::command]
+pub async fn separate_vocals(
+    window: Window,
+    audio_path: String,
+    output_dir: String,
+    acceleration: Option<String>,
+    project_id: Option<String>,
+) -> AppResult<SeparationResult> {
+    info!("=== 开始人声分离命令 ===");
+    info!("音频路径: {}", audio_path);
+    info!("输出目录: {}", output_dir);
+    info!("加速选项: {:?}", acceleration);
+
+    // 获取项目取消标志，如果没有 project_id 则使用默认标识
+    let cancel_flag_id = project_id.clone().unwrap_or_else(|| "default".to_string());
+    let _guard = CancelFlagGuard::new(cancel_flag_id.clone());
+    let cancel_flag = reset_cancel_flag(&cancel_flag_id);
+
+    let config = config::get_config();
+
+    // 确定加速模式（默认 GPU）
+    let accel_mode = match acceleration.as_deref() {
+        Some("cpu") => AccelerationMode::Cpu,
+        Some("gpu") | Some("auto") | Some("hybrid") | _ => AccelerationMode::Gpu,
+    };
+
+    // 检测 GPU 能力
+    let gpu_caps = detect_gpu_capabilities();
+    info!("GPU 能力检测: ONNX_GPU={}", gpu_caps.onnx_gpu_available);
+
+    let _ = window.emit("separation-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始人声分离...",
+        "acceleration": format!("{:?}", accel_mode),
+        "project_id": project_id
+    }));
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+    let result = separator::separate_vocals(
+        &audio_path,
+        &output_dir,
+        &config.separation,
+        &config.detected_gpu,
+        &accel_mode,
+        &gpu_caps,
+        Some(Box::new(move |progress, message| {
+            let _ = window_clone.emit("separation-progress", serde_json::json!({
+                "progress": progress,
+                "message": message,
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &cancel_flag_id,
+    )?;
+
+    let _ = window.emit("separation-complete", serde_json::json!({
+        "vocals_path": result.vocals_path,
+        "accompaniment_path": result.accompaniment_path,
+        "project_id": project_id
+    }));
+
+    Ok(result)
+}
+
+/// 匹配视频片段
+#[tauri::command]
+pub async fn match_video_segments(
+    window: Window,
+    accompaniment_path: String,
+    project_id: String,
+    min_confidence: Option<f64>,
+    music_ids: Option<Vec<String>>,
+) -> AppResult<Vec<Segment>> {
+    let _guard = CancelFlagGuard::new(project_id.clone());
+    let cancel_flag = reset_cancel_flag(&project_id);
+
+    let config = config::get_config();
+    let min_conf = min_confidence.unwrap_or(config.matching.min_confidence as f64);
+    let window_size = config.matching.window_size as f64;
+    let hop_size = config.matching.hop_size as f64;
+    let min_duration = config.matching.min_segment_duration as f64;
+    let max_gap_duration = config.matching.max_gap_duration as f64;
+
+    // 验证参数，防止除零错误
+    if hop_size <= 0.0 {
+        return Err(AppError::Config("滑动步长必须大于0".to_string()));
+    }
+    if window_size <= 0.0 {
+        return Err(AppError::Config("窗口大小必须大于0".to_string()));
+    }
+
+    let _ = window.emit("matching-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始匹配音频片段...",
+        "project_id": project_id
+    }));
+
+    // 获取音频时长
+    let audio_info = ffmpeg::get_audio_duration(&accompaniment_path)?;
+    let total_duration = audio_info;
+
+    // 边界检查：视频时长必须大于窗口大小才能进行匹配
+    if total_duration < window_size {
+        let msg = format!(
+            "视频时长 ({:.1}s) 小于最小匹配时长 ({:.1}s)，无法进行识别",
+            total_duration, window_size
+        );
+        info!("{}", msg);
+        return Err(AppError::InvalidArgument(msg));
+    }
+
+    // 获取音乐库指纹（支持自定义音乐列表）
+    let library = match &music_ids {
+        Some(ids) if !ids.is_empty() => {
+            info!("使用自定义音乐库: {} 首音乐, ID 列表: {:?}", ids.len(), ids);
+            database::get_fingerprints_by_ids(ids)?
+        }
+        _ => {
+            info!("使用全部音乐库");
+            database::get_all_fingerprints()?
+        }
+    };
+    info!("音乐库加载完成: 共 {} 首音乐", library.len());
+    if library.is_empty() {
+        return Err(AppError::NotFound("音乐库为空，请先导入音乐".to_string()));
+    }
+
+    // 清除该项目的旧匹配结果，避免重复匹配时结果累加
+    database::delete_segments_by_project(&project_id)?;
+
+    let temp_dir = tempfile::tempdir()?;
+    let total_windows = ((total_duration - window_size) / hop_size).ceil() as usize + 1;
+
+    // 生成所有窗口时间点
+    let window_times: Vec<(usize, f64)> = (0..total_windows)
+        .map(|i| (i, i as f64 * hop_size))
+        .filter(|(_, t)| *t + window_size <= total_duration)
+        .collect();
+
+    let actual_windows = window_times.len();
+    info!("开始并行匹配: {} 个窗口", actual_windows);
+
+    // 进度计数器
+    let processed_count = Arc::new(AtomicUsize::new(0));
+    let window_for_progress = window.clone();
+    let project_id_for_progress = project_id.clone();
+
+    // 并行处理每个窗口
+    let library_arc = Arc::new(library);
+    let temp_path = temp_dir.path().to_path_buf();
+    let accompaniment_path_arc = Arc::new(accompaniment_path.clone());
+
+    let window_results: Vec<Option<(usize, String, String, f64)>> = window_times
+        .par_iter()
+        .map(|(window_index, current_time)| {
+            // 检查取消标志
+            if cancel_flag.load(Ordering::SeqCst) {
+                return None;
+            }
+
+            // 提取窗口音频
+            let window_path = temp_path.join(format!("window_{}.wav", window_index));
+            if ffmpeg::extract_audio_segment(
+                &accompaniment_path_arc,
+                window_path.to_str().unwrap(),
+                *current_time,
+                window_size,
+            ).is_err() {
+                return None;
+            }
+
+            // 提取指纹并匹配
+            let result = if let Ok((fp_data, _)) = fingerprint::extract_fingerprint_from_file(window_path.to_str().unwrap()) {
+                // 并行遍历音乐库，找到最佳匹配
+                let best_match = library_arc.par_iter()
+                    .map(|(music_id, music_title, music_fp)| {
+                        let confidence = fingerprint::compare_fingerprints(&fp_data, music_fp);
+                        (music_id, music_title, confidence)
+                    })
+                    .filter(|(_, _, conf)| *conf >= min_conf)
+                    .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(id, title, conf)| (id.clone(), title.clone(), conf));
+
+                best_match.map(|(id, title, conf)| (*window_index, id, title, conf))
+            } else {
+                None
+            };
+
+            // 清理临时文件
+            let _ = std::fs::remove_file(&window_path);
+
+            // 更新进度
+            let count = processed_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if count % 10 == 0 || count == actual_windows {
+                let progress = count as f64 / actual_windows as f64;
+                let _ = window_for_progress.emit("matching-progress", serde_json::json!({
+                    "progress": progress,
+                    "message": format!("匹配中: {:.1}%", progress * 100.0),
+                    "project_id": project_id_for_progress
+                }));
+            }
+
+            result
+        })
+        .collect();
+
+    // 检查是否被取消
+    if cancel_flag.load(Ordering::SeqCst) {
+        return Err(AppError::Cancelled);
+    }
+
+    // 按窗口索引排序结果
+    let mut sorted_results: Vec<(usize, String, String, f64)> = window_results
+        .into_iter()
+        .flatten()
+        .collect();
+    sorted_results.sort_by_key(|(idx, _, _, _)| *idx);
+
+    // 顺序合并为片段
+    let mut segments: Vec<Segment> = Vec::new();
+    // (music_id, title, start_time, confidence, last_window_index)
+    let mut current_match: Option<(String, String, f64, f64, usize)> = None;
+
+    for (window_index, music_id, music_title, confidence) in sorted_results {
+        let current_time = window_index as f64 * hop_size;
+
+        match &current_match {
+            None => {
+                // 开始新的匹配片段
+                current_match = Some((music_id, music_title, current_time, confidence, window_index));
+            }
+            Some((curr_id, curr_title, start, conf, last_idx)) if curr_id == &music_id => {
+                // 检查时间连续性：计算与上一个匹配窗口的实际间隙
+                // 间隙 = 当前窗口开始时间 - 上一个窗口结束时间
+                let last_end_time = *last_idx as f64 * hop_size + window_size;
+                let gap = current_time - last_end_time;
+
+                if gap <= max_gap_duration {
+                    // 间隙在允许范围内（包括重叠的情况，gap <= 0），继续合并当前片段
+                    current_match = Some((curr_id.clone(), curr_title.clone(), *start, confidence.max(*conf), window_index));
+                } else {
+                    // 间隙过大，结束当前片段，开始新片段
+                    let end_time = *last_idx as f64 * hop_size + window_size;
+                    if end_time - start >= min_duration {
+                        segments.push(Segment {
+                            id: generate_id(),
+                            project_id: project_id.clone(),
+                            music_id: Some(curr_id.clone()),
+                            music_title: Some(curr_title.clone()),
+                            start_time: *start,
+                            end_time: end_time.min(total_duration),
+                            confidence: *conf,
+                            status: SegmentStatus::Detected,
+                        });
+                    }
+                    // 开始新的匹配片段
+                    current_match = Some((music_id, music_title, current_time, confidence, window_index));
+                }
+            }
+            Some((curr_id, curr_title, start, conf, last_idx)) => {
+                // 不同歌曲，结束当前匹配片段
+                let end_time = *last_idx as f64 * hop_size + window_size;
+                if end_time - start >= min_duration {
+                    segments.push(Segment {
+                        id: generate_id(),
+                        project_id: project_id.clone(),
+                        music_id: Some(curr_id.clone()),
+                        music_title: Some(curr_title.clone()),
+                        start_time: *start,
+                        end_time: end_time.min(total_duration),
+                        confidence: *conf,
+                        status: SegmentStatus::Detected,
+                    });
+                }
+                // 开始新的匹配
+                current_match = Some((music_id, music_title, current_time, confidence, window_index));
+            }
+        }
+    }
+
+    // 处理最后一个匹配片段
+    if let Some((music_id, music_title, start, conf, last_idx)) = current_match {
+        let end_time = last_idx as f64 * hop_size + window_size;
+        if end_time - start >= min_duration {
+            segments.push(Segment {
+                id: generate_id(),
+                project_id: project_id.clone(),
+                music_id: Some(music_id),
+                music_title: Some(music_title),
+                start_time: start,
+                end_time: end_time.min(total_duration),
+                confidence: conf,
+                status: SegmentStatus::Detected,
+            });
+        }
+    }
+
+    // 保存片段到数据库
+    for segment in &segments {
+        database::insert_segment(segment)?;
+    }
+
+    // 发送完成进度（确保前端收到 100%）
+    let _ = window.emit("matching-progress", serde_json::json!({
+        "progress": 1.0,
+        "message": "匹配完成",
+        "segments_found": segments.len(),
+        "project_id": project_id
+    }));
+
+    let _ = window.emit("matching-complete", serde_json::json!({
+        "segments": segments.len(),
+        "project_id": project_id
+    }));
+
+    Ok(segments)
+}
+
+/// 剪辑视频（重编码模式）
+#[tauri::command]
+pub async fn cut_video(
+    window: Window,
+    params: CutParams,
+) -> AppResult<String> {
+    let _guard = CancelFlagGuard::new(params.project_id.clone());
+    let cancel_flag = reset_cancel_flag(&params.project_id);
+
+    let project = database::get_project_by_id(&params.project_id)?
+        .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
+
+    info!("=== 开始剪辑视频（重编码模式）===");
+    info!("[CUT] 项目ID: {}", params.project_id);
+    info!("[CUT] 源视频: {}", project.source_video_path);
+    info!("[CUT] 输出路径: {}", params.output_path);
+    info!("[CUT] 保留匹配片段: {}", params.keep_matched);
+
+    let _ = window.emit("cut-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始剪辑视频...",
+        "project_id": params.project_id
+    }));
+
+    let window_clone = window.clone();
+    let project_id_clone = params.project_id.clone();
+    ffmpeg::cut_video_segments(
+        &project.source_video_path,
+        &params.output_path,
+        &project.segments,
+        params.keep_matched,
+        Some(Box::new(move |progress| {
+            let _ = window_clone.emit("cut-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("剪辑中: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &params.project_id,
+    )?;
+
+    info!("[CUT] 剪辑完成: {}", params.output_path);
+
+    let _ = window.emit("cut-complete", serde_json::json!({
+        "output_path": params.output_path,
+        "project_id": params.project_id
+    }));
+
+    Ok(params.output_path)
+}
+
+/// 导出视频（重编码模式）
+#[tauri::command]
+pub async fn export_video(
+    window: Window,
+    project_id: String,
+    output_path: String,
+) -> AppResult<String> {
+    let _guard = CancelFlagGuard::new(project_id.clone());
+    let cancel_flag = reset_cancel_flag(&project_id);
+
+    let project = database::get_project_by_id(&project_id)?
+        .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
+
+    // 检查源视频文件是否存在
+    if !Path::new(&project.source_video_path).exists() {
+        error!("[EXPORT] 源视频文件不存在: {}", project.source_video_path);
+        return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
+    }
+
+    info!("=== 开始导出视频（重编码模式）===");
+    info!("[EXPORT] 项目ID: {}", project_id);
+    info!("[EXPORT] 源视频: {}", project.source_video_path);
+    info!("[EXPORT] 输出路径: {}", output_path);
+
+    let _ = window.emit("export-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始导出视频...",
+        "project_id": project_id
+    }));
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+    if let Err(e) = ffmpeg::export_video(
+        &project.source_video_path,
+        &output_path,
+        &project.segments,
+        Some(Box::new(move |progress| {
+            let _ = window_clone.emit("export-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("导出中: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &project_id,
+    ) {
+        error!("[EXPORT] 导出失败: {}", e);
+        return Err(e);
+    }
+
+    info!("[EXPORT] 导出完成: {}", output_path);
+
+    let _ = window.emit("export-complete", serde_json::json!({
+        "output_path": output_path,
+        "project_id": project_id
+    }));
+
+    Ok(output_path)
+}
+
+/// 分别导出视频片段（每个片段单独导出）
+#[tauri::command]
+pub async fn export_video_separately(
+    window: Window,
+    project_id: String,
+    output_dir: String,
+) -> AppResult<serde_json::Value> {
+    let _guard = CancelFlagGuard::new(project_id.clone());
+    let cancel_flag = reset_cancel_flag(&project_id);
+
+    let project = database::get_project_by_id(&project_id)?
+        .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
+
+    // 检查源视频文件是否存在
+    if !Path::new(&project.source_video_path).exists() {
+        error!("[EXPORT_SEP] 源视频文件不存在: {}", project.source_video_path);
+        return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
+    }
+
+    info!("=== 开始分别导出视频片段 ===");
+    info!("[EXPORT_SEP] 项目ID: {}", project_id);
+    info!("[EXPORT_SEP] 源视频: {}", project.source_video_path);
+    info!("[EXPORT_SEP] 输出目录: {}", output_dir);
+
+    let _ = window.emit("export-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始分别导出视频片段...",
+        "project_id": project_id
+    }));
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+    let output_files = match ffmpeg::export_video_separately(
+        &project.source_video_path,
+        &output_dir,
+        &project.segments,
+        Some(Box::new(move |progress| {
+            let _ = window_clone.emit("export-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("导出中: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &project_id,
+    ) {
+        Ok(files) => files,
+        Err(e) => {
+            error!("[EXPORT_SEP] 导出失败: {}", e);
+            return Err(e);
+        }
+    };
+
+    info!("[EXPORT_SEP] 导出完成，共 {} 个文件", output_files.len());
+
+    let _ = window.emit("export-complete", serde_json::json!({
+        "output_dir": output_dir,
+        "exported_count": output_files.len(),
+        "project_id": project_id
+    }));
+
+    Ok(serde_json::json!({
+        "exported_count": output_files.len(),
+        "output_files": output_files
+    }))
+}
+
+/// 导出自定义剪辑片段
+#[tauri::command]
+pub async fn export_custom_clip(
+    window: Window,
+    project_id: String,
+    start_time: f64,
+    end_time: f64,
+    output_path: String,
+) -> AppResult<String> {
+    let _guard = CancelFlagGuard::new(project_id.clone());
+    let cancel_flag = reset_cancel_flag(&project_id);
+
+    let project = database::get_project_by_id(&project_id)?
+        .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
+
+    // 检查源视频文件是否存在
+    if !Path::new(&project.source_video_path).exists() {
+        error!("[EXPORT_CUSTOM] 源视频文件不存在: {}", project.source_video_path);
+        return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
+    }
+
+    // 验证时间范围
+    if start_time < 0.0 {
+        return Err(AppError::InvalidArgument("开始时间不能为负数".to_string()));
+    }
+    if end_time <= start_time {
+        return Err(AppError::InvalidArgument("结束时间必须大于开始时间".to_string()));
+    }
+
+    let duration = end_time - start_time;
+    info!("=== 开始导出自定义剪辑片段 ===");
+    info!("[EXPORT_CUSTOM] 项目ID: {}", project_id);
+    info!("[EXPORT_CUSTOM] 源视频: {}", project.source_video_path);
+    info!("[EXPORT_CUSTOM] 时间范围: {:.3}s - {:.3}s (时长: {:.3}s)", start_time, end_time, duration);
+    info!("[EXPORT_CUSTOM] 输出路径: {}", output_path);
+
+    let _ = window.emit("export-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始导出自定义剪辑...",
+        "project_id": project_id
+    }));
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+
+    // 使用 ffmpeg 导出指定时间范围的视频
+    if let Err(e) = ffmpeg::export_custom_segment(
+        &project.source_video_path,
+        &output_path,
+        start_time,
+        end_time,
+        Some(Box::new(move |progress| {
+            let _ = window_clone.emit("export-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("导出中: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &project_id,
+    ) {
+        error!("[EXPORT_CUSTOM] 导出失败: {}", e);
+        return Err(e);
+    }
+
+    info!("[EXPORT_CUSTOM] 导出完成: {}", output_path);
+
+    let _ = window.emit("export-complete", serde_json::json!({
+        "output_path": output_path,
+        "project_id": project_id
+    }));
+
+    Ok(output_path)
+}
+
+/// 获取视频缩略图
+#[tauri::command]
+pub async fn get_video_thumbnail(
+    video_path: String,
+    output_path: String,
+    time: Option<f64>,
+) -> AppResult<String> {
+    info!(
+        "thumbnail request: video_path={}, output_path={}, time={:?}",
+        video_path, output_path, time
+    );
+
+    // 检查缩略图是否已存在，如果存在则直接返回
+    let output_file = Path::new(&output_path);
+    if output_file.exists() {
+        info!("thumbnail already exists, skipping generation: {}", output_path);
+        return Ok(output_path);
+    }
+
+    let timestamp = time.unwrap_or(0.0);
+    info!("thumbnail timestamp resolved: {}", timestamp);
+    if !Path::new(&video_path).exists() {
+        info!("thumbnail video missing: {}", video_path);
+    }
+    if let Some(parent) = output_file.parent() {
+        info!(
+            "thumbnail output dir: {:?}, exists={}",
+            parent,
+            parent.exists()
+        );
+    }
+
+    if let Err(e) = ffmpeg::extract_thumbnail(&video_path, &output_path, timestamp) {
+        error!("thumbnail failed: {}", e);
+        return Err(e);
+    }
+    info!("thumbnail generated: {}", output_path);
+    Ok(output_path)
+}
+
+/// 检测视频是否需要转码预览
+#[tauri::command]
+pub async fn check_needs_preview(video_path: String) -> AppResult<bool> {
+    info!("检测视频是否需要预览转码: {}", video_path);
+
+    if !Path::new(&video_path).exists() {
+        return Err(AppError::NotFound(format!("视频文件不存在: {}", video_path)));
+    }
+
+    let video_info = ffmpeg::get_video_info(&video_path)?;
+    let needs_preview = ffmpeg::needs_preview_transcode(&video_info);
+
+    info!(
+        "视频格式检测结果: format={}, codec={}, needs_preview={}",
+        video_info.format, video_info.video_codec, needs_preview
+    );
+
+    Ok(needs_preview)
+}
+
+/// 生成预览视频
+#[tauri::command]
+pub async fn generate_preview_video(
+    window: Window,
+    source_path: String,
+    output_path: String,
+    project_id: Option<String>,
+) -> AppResult<String> {
+    info!("=== 开始生成预览视频 ===");
+    info!("源视频: {}", source_path);
+    info!("输出路径: {}", output_path);
+
+    if !Path::new(&source_path).exists() {
+        return Err(AppError::NotFound(format!("源视频文件不存在: {}", source_path)));
+    }
+
+    // 如果预览文件已存在，直接返回
+    if Path::new(&output_path).exists() {
+        info!("预览视频已存在，跳过生成: {}", output_path);
+        return Ok(output_path);
+    }
+
+    // 获取预览任务专用的取消标志（使用 preview_ 前缀区分）
+    let cancel_flag_id = format!("preview_{}", project_id.clone().unwrap_or_else(|| "default".to_string()));
+    let _guard = CancelFlagGuard::new(cancel_flag_id.clone());
+    let cancel_flag = reset_cancel_flag(&cancel_flag_id);
+
+    let _ = window.emit("preview-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始生成预览视频...",
+        "project_id": project_id
+    }));
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+
+    ffmpeg::generate_preview_video(
+        &source_path,
+        &output_path,
+        Some(Box::new(move |progress| {
+            let _ = window_clone.emit("preview-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("生成预览: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &cancel_flag_id,
+    )?;
+
+    let _ = window.emit("preview-complete", serde_json::json!({
+        "output_path": output_path,
+        "project_id": project_id
+    }));
+
+    info!("预览视频生成完成: {}", output_path);
+    Ok(output_path)
+}
+
+/// 取消处理（指定项目）
+#[tauri::command]
+pub async fn cancel_processing(project_id: Option<String>) -> AppResult<()> {
+    let flag_id = project_id.unwrap_or_else(|| "default".to_string());
+
+    // 1. 设置取消标志（保留，用于非进程检查点）
+    let flag = get_cancel_flag(&flag_id);
+    flag.store(true, Ordering::SeqCst);
+
+    // 2. 立即 kill 所有子进程，实现即时取消
+    kill_child_processes(&flag_id);
+
+    info!("取消处理请求: project_id={}, 已终止所有子进程", flag_id);
+    Ok(())
+}
+
+/// 取消预览视频生成（仅取消预览任务，不影响其他处理任务）
+#[tauri::command]
+pub async fn cancel_preview_generation(project_id: Option<String>) -> AppResult<()> {
+    let flag_id = format!("preview_{}", project_id.unwrap_or_else(|| "default".to_string()));
+
+    // 1. 设置取消标志
+    let flag = get_cancel_flag(&flag_id);
+    flag.store(true, Ordering::SeqCst);
+
+    // 2. 立即 kill 预览生成的子进程
+    kill_child_processes(&flag_id);
+
+    info!("取消预览生成请求: flag_id={}, 已终止预览生成进程", flag_id);
+    Ok(())
+}
+
+/// 检测 GPU 能力（使用缓存，整个应用生命周期只检测一次）
+pub fn detect_gpu_capabilities() -> GpuCapabilities {
+    GPU_CAPS_CACHE.get_or_init(|| {
+        info!("首次检测 GPU 能力...");
+        let onnx_gpu_available = check_onnx_gpu();
+        info!("GPU 能力检测完成: ONNX_GPU={}", onnx_gpu_available);
+        GpuCapabilities {
+            onnx_gpu_available,
+        }
+    }).clone()
+}
+
+/// 异步预检测 GPU 能力（应用启动时调用，避免阻塞用户操作）
+pub fn preload_gpu_capabilities() {
+    std::thread::spawn(|| {
+        detect_gpu_capabilities();
+    });
+}
+
+/// 检测 ONNX Runtime GPU 是否可用
+fn check_onnx_gpu() -> bool {
+    let output = hidden_command("python")
+        .args([
+            "-c",
+            r#"
+import onnxruntime as ort
+providers = ort.get_available_providers()
+has_gpu = 'CUDAExecutionProvider' in providers or 'TensorrtExecutionProvider' in providers or 'DmlExecutionProvider' in providers
+print('onnx_gpu_ok' if has_gpu else 'onnx_gpu_no')
+"#,
+        ])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.lines().any(|line| line.trim() == "onnx_gpu_ok")
+        }
+        _ => false,
+    }
+}
