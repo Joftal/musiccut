@@ -1,0 +1,299 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: false
+        default: '1.0.0'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🏷️ Get version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=${{ github.event.inputs.version || '1.0.0' }}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: 📗 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🔧 Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 📦 Install Node dependencies
+        run: npm ci
+
+      - name: 🎬 Download FFmpeg
+        shell: pwsh
+        run: |
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $ffmpegZip = "ffmpeg.zip"
+
+          Write-Host "Downloading FFmpeg..."
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegZip
+
+          Write-Host "Extracting FFmpeg..."
+          Expand-Archive -Path $ffmpegZip -DestinationPath "ffmpeg-temp" -Force
+
+          # Find the extracted folder and move binaries
+          $extractedDir = Get-ChildItem -Path "ffmpeg-temp" -Directory | Select-Object -First 1
+          New-Item -ItemType Directory -Path "ffmpeg" -Force | Out-Null
+
+          Copy-Item "$($extractedDir.FullName)\bin\ffmpeg.exe" "ffmpeg\"
+          Copy-Item "$($extractedDir.FullName)\bin\ffprobe.exe" "ffmpeg\"
+
+          # Cleanup
+          Remove-Item $ffmpegZip -Force
+          Remove-Item "ffmpeg-temp" -Recurse -Force
+
+          Write-Host "FFmpeg ready:"
+          Get-ChildItem "ffmpeg"
+
+      - name: 🎵 Download fpcalc (Chromaprint)
+        shell: pwsh
+        run: |
+          $fpcalcUrl = "https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip"
+          $fpcalcZip = "fpcalc.zip"
+
+          Write-Host "Downloading fpcalc..."
+          Invoke-WebRequest -Uri $fpcalcUrl -OutFile $fpcalcZip
+
+          Write-Host "Extracting fpcalc..."
+          Expand-Archive -Path $fpcalcZip -DestinationPath "fpcalc-temp" -Force
+
+          # Find and copy fpcalc.exe
+          $fpcalcExe = Get-ChildItem -Path "fpcalc-temp" -Recurse -Filter "fpcalc.exe" | Select-Object -First 1
+          Copy-Item $fpcalcExe.FullName "ffmpeg\"
+
+          # Cleanup
+          Remove-Item $fpcalcZip -Force
+          Remove-Item "fpcalc-temp" -Recurse -Force
+
+          Write-Host "fpcalc ready:"
+          Get-ChildItem "ffmpeg"
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🤖 Build audio-separator package
+        shell: pwsh
+        run: |
+          Write-Host "Creating Python virtual environment..."
+          python -m venv tools\venv
+
+          Write-Host "Installing audio-separator..."
+          .\tools\venv\Scripts\pip.exe install audio-separator[gpu] pyinstaller
+
+          Write-Host "Building audio-separator executable..."
+          .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
+
+          Write-Host "audio-separator package ready:"
+          Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
+
+      - name: 🔨 Build Tauri application
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD\ffmpeg;$env:PATH"
+          npm run tauri:build
+
+      - name: 📦 Create Full Package (with FFmpeg)
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $outputDir = "dist\MusicCut-Full"
+          $archiveName = "MusicCut_${version}_x64_Full.7z"
+
+          Write-Host "Creating full package..."
+
+          # Create output directory
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+
+          # Copy main exe
+          Copy-Item "src-tauri\target\release\MusicCut.exe" $outputDir
+
+          # Copy WebView2Loader.dll if exists
+          if (Test-Path "src-tauri\target\release\WebView2Loader.dll") {
+            Copy-Item "src-tauri\target\release\WebView2Loader.dll" $outputDir
+          }
+
+          # Copy FFmpeg
+          Copy-Item -Recurse "ffmpeg" "$outputDir\ffmpeg"
+
+          # Copy models if exist
+          if (Test-Path "models") {
+            Copy-Item -Recurse "models" "$outputDir\models"
+          }
+
+          # Copy audio-separator
+          if (Test-Path "src-tauri\resources\audio-separator") {
+            Copy-Item -Recurse "src-tauri\resources\audio-separator" "$outputDir\audio-separator"
+          }
+
+          # Create run script
+          '@echo off
+          cd /d "%~dp0"
+          start "" "MusicCut.exe"' | Out-File -FilePath "$outputDir\Run MusicCut.bat" -Encoding ASCII
+
+          # Create 7z archive
+          7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
+
+          Write-Host "Full package created: dist\$archiveName"
+          Get-ChildItem "dist\*.7z"
+
+      - name: 📦 Create Lite Package (without FFmpeg)
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $outputDir = "dist\MusicCut-Lite"
+          $archiveName = "MusicCut_${version}_x64_Lite.7z"
+
+          Write-Host "Creating lite package (without FFmpeg)..."
+
+          # Create output directory
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+
+          # Copy main exe
+          Copy-Item "src-tauri\target\release\MusicCut.exe" $outputDir
+
+          # Copy WebView2Loader.dll if exists
+          if (Test-Path "src-tauri\target\release\WebView2Loader.dll") {
+            Copy-Item "src-tauri\target\release\WebView2Loader.dll" $outputDir
+          }
+
+          # Copy models if exist
+          if (Test-Path "models") {
+            Copy-Item -Recurse "models" "$outputDir\models"
+          }
+
+          # Copy audio-separator
+          if (Test-Path "src-tauri\resources\audio-separator") {
+            Copy-Item -Recurse "src-tauri\resources\audio-separator" "$outputDir\audio-separator"
+          }
+
+          # Create README for lite version
+          'MusicCut Lite 版本
+          ==================
+
+          此版本不包含 FFmpeg，需要用户自行安装。
+
+          安装 FFmpeg:
+          1. 下载 FFmpeg: https://www.gyan.dev/ffmpeg/builds/
+          2. 下载 fpcalc: https://acoustid.org/chromaprint
+          3. 将 ffmpeg.exe, ffprobe.exe, fpcalc.exe 放入程序目录下的 ffmpeg 文件夹
+
+          或者将 FFmpeg 添加到系统 PATH 环境变量。
+          ' | Out-File -FilePath "$outputDir\README-Lite.txt" -Encoding UTF8
+
+          # Create run script
+          '@echo off
+          cd /d "%~dp0"
+          start "" "MusicCut.exe"' | Out-File -FilePath "$outputDir\Run MusicCut.bat" -Encoding ASCII
+
+          # Create 7z archive
+          7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
+
+          Write-Host "Lite package created: dist\$archiveName"
+          Get-ChildItem "dist\*.7z"
+
+      - name: 📋 List artifacts
+        shell: pwsh
+        run: |
+          Write-Host "=== Build Artifacts ==="
+          Get-ChildItem "dist\*.7z" | ForEach-Object {
+            $sizeMB = [math]::Round($_.Length / 1MB, 2)
+            Write-Host "$($_.Name) - $sizeMB MB"
+          }
+
+      - name: 📤 Upload Full Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicCut-Full-${{ steps.version.outputs.version }}
+          path: dist/*_Full.7z
+          retention-days: 30
+
+      - name: 📤 Upload Lite Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicCut-Lite-${{ steps.version.outputs.version }}
+          path: dist/*_Lite.7z
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: 📥 Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 📋 List downloaded artifacts
+        run: |
+          echo "=== Downloaded Artifacts ==="
+          find artifacts -type f -name "*.7z" | while read f; do
+            size=$(du -h "$f" | cut -f1)
+            echo "$(basename $f) - $size"
+          done
+
+      - name: 🚀 Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: MusicCut ${{ github.ref_name }}
+          body: |
+            ## 📦 下载说明
+
+            | 版本 | 说明 | 适用场景 |
+            |:---:|:---|:---|
+            | **Full** | 完整版，包含所有依赖 | 推荐大多数用户使用 |
+            | **Lite** | 精简版，不含 FFmpeg | 已安装 FFmpeg 的用户 |
+
+            ## 🚀 使用方法
+
+            1. 下载对应版本的 `.7z` 文件
+            2. 解压到任意目录
+            3. 运行 `MusicCut.exe` 或 `Run MusicCut.bat`
+
+            ## ⚠️ Lite 版本注意
+
+            Lite 版本需要自行安装 FFmpeg：
+            - 下载 [FFmpeg](https://www.gyan.dev/ffmpeg/builds/)
+            - 下载 [fpcalc](https://acoustid.org/chromaprint)
+            - 将可执行文件放入程序目录的 `ffmpeg` 文件夹
+          files: |
+            artifacts/**/*.7z
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
