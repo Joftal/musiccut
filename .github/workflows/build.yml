@@ -252,15 +252,17 @@ jobs:
       - name: 📤 Upload Full Package
         uses: actions/upload-artifact@v4
         with:
-          name: MusicCut-Full-${{ steps.version.outputs.version }}
+          name: MusicCut_${{ steps.version.outputs.version }}_x64_Full.7z
           path: dist/*_Full.7z
+          compression-level: 0
           retention-days: 30
 
       - name: 📤 Upload Lite Package
         uses: actions/upload-artifact@v4
         with:
-          name: MusicCut-Lite-${{ steps.version.outputs.version }}
+          name: MusicCut_${{ steps.version.outputs.version }}_x64_Lite.7z
           path: dist/*_Lite.7z
+          compression-level: 0
           retention-days: 30
 
   release:
