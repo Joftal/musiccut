@@ -4,12 +4,12 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-# 收集 audio-separator 及其依赖的数据文件
+# Collect audio-separator and its dependencies data files
 datas = []
 datas += collect_data_files('audio_separator')
 datas += collect_data_files('onnxruntime')
 
-# 收集所有子模块（仅 ONNX 相关，不需要 PyTorch）
+# Collect all submodules (ONNX only, no PyTorch)
 hiddenimports = []
 hiddenimports += collect_submodules('audio_separator')
 hiddenimports += collect_submodules('onnxruntime')

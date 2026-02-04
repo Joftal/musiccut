@@ -37,7 +37,7 @@ jobs:
       - name: 📗 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: 🦀 Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -80,7 +80,7 @@ jobs:
       - name: 🎵 Download fpcalc (Chromaprint)
         shell: pwsh
         run: |
-          $fpcalcUrl = "https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip"
+          $fpcalcUrl = "https://github.com/acoustid/chromaprint/releases/download/v1.6.0/chromaprint-fpcalc-1.6.0-windows-x86_64.zip"
           $fpcalcZip = "fpcalc.zip"
 
           Write-Host "Downloading fpcalc..."
@@ -103,7 +103,7 @@ jobs:
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.9'
 
       - name: 🤖 Build audio-separator package
         shell: pwsh
@@ -111,14 +111,33 @@ jobs:
           Write-Host "Creating Python virtual environment..."
           python -m venv tools\venv
 
-          Write-Host "Installing audio-separator..."
-          .\tools\venv\Scripts\pip.exe install audio-separator[gpu] pyinstaller
+          Write-Host "Installing ONNX Runtime GPU..."
+          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
+
+          Write-Host "Installing audio-separator (ONNX only, no PyTorch)..."
+          .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller
 
           Write-Host "Building audio-separator executable..."
           .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
 
           Write-Host "audio-separator package ready:"
           Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
+
+      - name: 📥 Download MDX-Net model
+        shell: pwsh
+        run: |
+          $modelDir = "models\audio-separator\mdx-inst-hq3"
+          $modelFile = "UVR-MDX-NET-Inst_HQ_3.onnx"
+          $modelUrl = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/$modelFile"
+
+          Write-Host "Creating model directory..."
+          New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
+
+          Write-Host "Downloading MDX-Net model ($modelFile)..."
+          Invoke-WebRequest -Uri $modelUrl -OutFile "$modelDir\$modelFile"
+
+          Write-Host "Model downloaded:"
+          Get-ChildItem $modelDir
 
       - name: 🔨 Build Tauri application
         shell: pwsh

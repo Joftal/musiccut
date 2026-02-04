@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""audio-separator 入口点"""
+"""audio-separator entry point"""
 import sys
 from audio_separator.separator import main
 
