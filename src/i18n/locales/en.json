@@ -1,0 +1,291 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "save": "Save",
+    "search": "Search",
+    "clear": "Clear",
+    "browse": "Browse",
+    "export": "Export",
+    "import": "Import",
+    "refresh": "Refresh",
+    "download": "Download",
+    "preview": "Preview",
+    "remove": "Remove",
+    "restore": "Restore",
+    "create": "Create",
+    "loading": "Loading...",
+    "processing": "Processing...",
+    "cancelling": "Cancelling...",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Info",
+    "unavailable": "Unavailable",
+    "cores": "cores",
+    "threads": "threads"
+  },
+  "sidebar": {
+    "appSubtitle": "Audio Fingerprint Editor",
+    "projects": "Projects",
+    "library": "Library",
+    "editor": "Editor",
+    "settings": "Settings",
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode",
+    "cpu": "CPU",
+    "gpu": "GPU"
+  },
+  "projects": {
+    "title": "Projects",
+    "subtitle": "Manage your video editing projects",
+    "newProject": "New Project",
+    "importFolder": "Import Folder",
+    "searchPlaceholder": "Search projects...",
+    "emptyTitle": "No projects yet",
+    "emptySubtitle": "Click \"New Project\" to start",
+    "needsTranscode": "Transcode",
+    "segments": "segments",
+    "sourceFileDeleted": "Source file deleted",
+    "dialog": {
+      "newProjectTitle": "New Project",
+      "videoFile": "Video File",
+      "selectVideo": "Select video file",
+      "deleteProjectTitle": "Delete Project",
+      "deleteWarning": "Warning: This action cannot be undone!",
+      "deleteConfirm": "Are you sure you want to delete this project? It cannot be recovered."
+    },
+    "toast": {
+      "selectVideo": "Please select a video file",
+      "createFailed": "Failed to create project",
+      "skipExisting": "Imported 0 projects, skipped 1 existing project",
+      "deleted": "Project deleted",
+      "deleteFailed": "Delete failed",
+      "noVideoInFolder": "No video files in this folder",
+      "longFileName": "{{count}} files have long names",
+      "longFileNameDesc": "These projects may fail to export due to path length. Consider renaming before import",
+      "importFailed": "Import failed",
+      "importComplete": "Import complete",
+      "importSuccess": "Successfully imported {{created}} projects",
+      "importSkipped": "Skipped {{skipped}} existing",
+      "importErrors": "{{errors}} failed",
+      "sourceNotExist": "Source video file not found",
+      "sourceNotExistDesc": "The source video file has been deleted or moved and cannot be edited"
+    },
+    "progress": {
+      "preparing": "Preparing import..."
+    }
+  },
+  "library": {
+    "title": "Music Library",
+    "subtitle": "Manage music fingerprint library, {{count}} tracks total",
+    "importFolder": "Import Folder",
+    "importFiles": "Import Files",
+    "searchPlaceholder": "Search music...",
+    "emptyTitle": "Library is empty",
+    "emptySubtitle": "Import music to create fingerprint library",
+    "table": {
+      "index": "#",
+      "title": "Title",
+      "duration": "Duration",
+      "addedTime": "Added"
+    },
+    "sourceDeleted": "Source file deleted (matching still works)",
+    "dialog": {
+      "deleteMusicTitle": "Delete Music",
+      "deleteWarning": "Warning: This action cannot be undone!",
+      "deleteConfirm": "Are you sure you want to delete this music? It cannot be recovered."
+    },
+    "toast": {
+      "importSuccess": "Successfully imported {{imported}} audio files",
+      "importSkipped": "Skipped {{skipped}} existing files",
+      "importErrors": "{{errors}} files failed to import",
+      "importFailed": "Import failed",
+      "deleted": "Deleted",
+      "deleteFailed": "Delete failed"
+    }
+  },
+  "editor": {
+    "selectProject": "Please select or create a project from the project list",
+    "backToProjects": "Back to Projects",
+    "downloadModelFirst": "Please download model first",
+    "allMusic": "All Music",
+    "songsSelected": "{{count}} songs",
+    "startRecognition": "Start Recognition",
+    "gpuAcceleration": "GPU Acceleration",
+    "cpuOnly": "CPU Only",
+    "segments": {
+      "title": "Detected Segments",
+      "count": "{{count}} segments",
+      "empty": "No segments detected",
+      "emptyHint": "Click \"Start Recognition\" to detect",
+      "unknownMusic": "Unknown Music"
+    },
+    "timeline": {
+      "normalMode": "Normal Mode",
+      "customClip": "Custom Clip",
+      "start": "Start",
+      "end": "End",
+      "duration": "Duration"
+    },
+    "dialog": {
+      "exportTitle": "Export Video",
+      "exportMode": "Export Mode",
+      "mergedExport": "Merged Export",
+      "separateExport": "Separate Export",
+      "mergedDesc": "Combine all segments into one video file",
+      "separateDesc": "Export each segment as a separate file",
+      "outputPath": "Output Path",
+      "outputDir": "Output Directory",
+      "selectSavePath": "Select save location",
+      "selectOutputDir": "Select output directory",
+      "exportHint": "Will export {{count}} segments in high quality re-encoding mode."
+    },
+    "toast": {
+      "noModel": "No model available",
+      "downloadModelFirst": "Please download at least one separation model in Settings",
+      "emptyLibrary": "Music library is empty",
+      "importMusicFirst": "Please import music to the library first",
+      "videoDurationShort": "Video duration too short",
+      "videoDurationShortDesc": "Video duration ({{duration}}s) is less than minimum matching duration ({{minDuration}}s). Adjust \"Matching Window Size\" in Settings",
+      "modelSwitched": "Model switched",
+      "modelSwitchedDesc": "Automatically switched to downloaded model \"{{name}}\"",
+      "processingComplete": "{{name}} processing complete",
+      "segmentsDetected": "Detected {{count}} matching segments",
+      "processingFailed": "Processing failed",
+      "cancelled": "Cancelled",
+      "analysisCancelled": "{{name}} analysis cancelled",
+      "exportComplete": "Export complete",
+      "exportFailed": "Export failed",
+      "exportCancelled": "{{name}} export cancelled",
+      "exportedSegments": "Exported {{count}} segments to {{path}}",
+      "sourceNotExist": "Source video file not found",
+      "sourceNotExistDesc": "The source video file has been deleted or moved and cannot be edited",
+      "loadProjectFailed": "Failed to load project",
+      "previewComplete": "Preview video generated",
+      "previewCompleteDesc": "Video can now be played normally",
+      "previewFailed": "Preview generation failed",
+      "previewFailedDesc": "Video may not play properly, but analysis and export still work",
+      "customClipExportCancelled": "{{name}} custom clip export cancelled",
+      "rangeTooShort": "Time range too short",
+      "rangeTooShortDesc": "Please select at least 0.1 seconds"
+    },
+    "progress": {
+      "generatingPreview": "Generating preview video (format not supported for direct playback)...",
+      "exportingCustomClip": "Exporting custom clip..."
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Configure application and processing options",
+    "systemInfo": {
+      "title": "System Information",
+      "cpu": "CPU",
+      "gpu": "GPU",
+      "onnxCuda": "ONNX CUDA",
+      "cpuOnlyTag": "CPU Only",
+      "onnxGpuAvailable": "ONNX models can use GPU acceleration",
+      "onnxGpuUnavailable": "No GPU acceleration detected, will use CPU processing"
+    },
+    "matching": {
+      "title": "Matching Settings",
+      "minConfidence": "Minimum Confidence",
+      "minConfidenceDesc": "Matching similarity threshold, below this value won't be recognized as a match (0.0-1.0)",
+      "minSegmentDuration": "Minimum Segment Duration (sec)",
+      "minSegmentDurationDesc": "Minimum duration for matched segments, shorter segments will be ignored",
+      "windowSize": "Matching Window Size (sec)",
+      "windowSizeDesc": "Audio length for each analysis, video duration must be greater than this value",
+      "hopSize": "Hop Size (sec)",
+      "hopSizeDesc": "Distance the window moves each time, smaller values give higher precision but slower speed",
+      "maxGapDuration": "Maximum Gap Duration (sec)",
+      "maxGapDurationDesc": "Gaps exceeding this value in the same song will be split into separate segments"
+    },
+    "separation": {
+      "title": "Vocal Separation Settings",
+      "model": "Separation Model",
+      "currentSelection": "Current Selection",
+      "downloaded": "Downloaded",
+      "downloading": "Downloading",
+      "trackSeparation": "{{count}}-track separation",
+      "modelHint": "Click \"Download\" to pre-download models. Higher speed rating means faster processing, higher quality rating means better separation."
+    },
+    "log": {
+      "title": "Log Settings",
+      "level": "Log Level",
+      "info": "Standard",
+      "infoDesc": "Record key operation information",
+      "debug": "Debug",
+      "debugDesc": "Record detailed debug information",
+      "trace": "Trace",
+      "traceDesc": "Record all execution details",
+      "hint": "Changing log level requires app restart. Log files are saved in the logs folder of the data directory."
+    },
+    "storage": {
+      "title": "Storage Management",
+      "database": "Database",
+      "cache": "Processing Cache",
+      "dataDir": "Data Directory",
+      "total": "Total",
+      "clearCache": "Clear Processing Cache"
+    },
+    "data": {
+      "title": "Data Management",
+      "hint": "The following operations cannot be undone. Please proceed with caution.",
+      "resetDatabase": "Reset Database",
+      "resetConfig": "Reset Config"
+    },
+    "saveSettings": "Save Settings",
+    "dialog": {
+      "resetDbTitle": "Reset Database",
+      "resetDbWarning": "Warning: This action cannot be undone!",
+      "resetDbDesc": "Resetting the database will clear all of the following data:",
+      "resetDbItem1": "All projects and their segment information",
+      "resetDbItem2": "All music and fingerprint data in the library",
+      "resetDbConfirm": "Are you sure you want to continue?",
+      "confirmReset": "Confirm Reset",
+      "resetConfigTitle": "Reset Configuration",
+      "resetConfigDesc": "Resetting configuration will restore all settings to default values, including:",
+      "resetConfigItem1": "Matching parameter settings",
+      "resetConfigItem2": "Vocal separation settings",
+      "resetConfigItem3": "Log level settings",
+      "resetConfigItem4": "Window size and position"
+    },
+    "toast": {
+      "saved": "Settings saved",
+      "saveFailed": "Save failed",
+      "cacheCleared": "Cache cleared",
+      "cacheClearedDesc": "Released {{size}}",
+      "clearCacheFailed": "Failed to clear cache",
+      "dbReset": "Database reset",
+      "dbResetDesc": "All projects and music library data cleared",
+      "dbResetFailed": "Failed to reset database",
+      "configReset": "Configuration reset",
+      "configResetDesc": "All settings restored to default values",
+      "configResetFailed": "Failed to reset configuration",
+      "downloadFailed": "Download failed",
+      "downloadComplete": "Download complete"
+    }
+  },
+  "musicSelector": {
+    "title": "Select Matching Music",
+    "useFullLibrary": "When no music is selected, the full library will be used for matching",
+    "useSelected": "Confirm Selection",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "selected": "{{count}} selected",
+    "deletedCount": "{{count}} deleted",
+    "searchPlaceholder": "Search music...",
+    "emptyLibrary": "Library is empty",
+    "importFirst": "Please import music in the Library page first"
+  },
+  "stage": {
+    "idle": "Idle",
+    "extracting": "Extracting Audio",
+    "separating": "Separating Vocals",
+    "matching": "Matching",
+    "analyzed": "Analyzed",
+    "exporting": "Exporting",
+    "exported": "Exported"
+  }
+}

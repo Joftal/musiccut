@@ -1,3 +1,7 @@
+<p align="center">
+  <b>简体中文</b> | <a href="./INSTALL_EN.md">English</a>
+</p>
+
 <h1 align="center">📦 MusicCut 安装指南</h1>
 
 <p align="center">

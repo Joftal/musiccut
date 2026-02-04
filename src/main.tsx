@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { initTheme } from './stores';
+import './i18n';
 import './styles/globals.css';
 
 // 初始化主题 (在渲染前应用，避免闪烁)

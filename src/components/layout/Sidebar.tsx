@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   FolderOpen,
   Music,
@@ -11,10 +12,12 @@ import {
   HardDrive,
   Sun,
   Moon,
+  Languages,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useSystemStore } from '@/stores/systemStore';
 import { useThemeStore } from '@/stores/themeStore';
+import { useLanguageStore } from '@/stores/languageStore';
 
 interface NavItemProps {
   to: string;
@@ -41,8 +44,10 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label }) => {
 };
 
 export const Sidebar: React.FC = () => {
+  const { t } = useTranslation();
   const { accelerationOptions, systemInfo } = useSystemStore();
   const { theme, toggleTheme } = useThemeStore();
+  const { language, toggleLanguage } = useLanguageStore();
 
   return (
     <aside className="w-56 h-full bg-[hsl(var(--sidebar-bg))] border-r border-[hsl(var(--sidebar-border))] flex flex-col">
@@ -52,30 +57,46 @@ export const Sidebar: React.FC = () => {
           <img src="/app-icon.png" alt="MusicCut" className="w-8 h-8 rounded-lg" />
           <div>
             <h1 className="text-lg font-bold text-[hsl(var(--text-primary))]">MusicCut</h1>
-            <p className="text-xs text-[hsl(var(--text-muted))]">音频指纹剪辑</p>
+            <p className="text-xs text-[hsl(var(--text-muted))]">{t('sidebar.appSubtitle')}</p>
           </div>
         </div>
       </div>
 
       {/* 导航 */}
       <nav className="flex-1 p-3 space-y-1">
-        <NavItem to="/" icon={<FolderOpen className="w-5 h-5" />} label="项目" />
+        <NavItem to="/" icon={<FolderOpen className="w-5 h-5" />} label={t('sidebar.projects')} />
         <NavItem
           to="/library"
           icon={<Music className="w-5 h-5" />}
-          label="音乐库"
+          label={t('sidebar.library')}
         />
         <NavItem
           to="/editor"
           icon={<Film className="w-5 h-5" />}
-          label="编辑器"
+          label={t('sidebar.editor')}
         />
         <NavItem
           to="/settings"
           icon={<Settings className="w-5 h-5" />}
-          label="设置"
+          label={t('sidebar.settings')}
         />
       </nav>
+
+      {/* 语言切换 */}
+      <div className="px-3 pb-2">
+        <button
+          onClick={toggleLanguage}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
+            'text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--nav-hover))]'
+          )}
+        >
+          <Languages className="w-5 h-5" />
+          <span className="text-sm font-medium">
+            {language === 'zh' ? '中文' : 'English'}
+          </span>
+        </button>
+      </div>
 
       {/* 主题切换 */}
       <div className="px-3 pb-2">
@@ -92,7 +113,7 @@ export const Sidebar: React.FC = () => {
             <Sun className="w-5 h-5" />
           )}
           <span className="text-sm font-medium">
-            {theme === 'dark' ? '深色模式' : '明亮模式'}
+            {theme === 'dark' ? t('sidebar.darkMode') : t('sidebar.lightMode')}
           </span>
         </button>
       </div>
@@ -102,27 +123,27 @@ export const Sidebar: React.FC = () => {
         <div className="p-3 bg-[hsl(var(--card-bg))] rounded-lg space-y-2">
           <div className="flex items-start gap-2 text-xs">
             <Cpu className="w-4 h-4 text-[hsl(var(--text-muted))]" />
-            <span className="text-[hsl(var(--text-muted))]">CPU:</span>
+            <span className="text-[hsl(var(--text-muted))]">{t('sidebar.cpu')}:</span>
             <span
               className="min-w-0 flex-1 break-words text-[hsl(var(--text-secondary))] leading-snug"
               title={
                 systemInfo
-                  ? `${systemInfo.cpu_cores} 核心 / ${systemInfo.cpu_threads} 线程`
+                  ? `${systemInfo.cpu_cores} ${t('common.cores')} / ${systemInfo.cpu_threads} ${t('common.threads')}`
                   : accelerationOptions?.cpu_threads
-                    ? `${accelerationOptions.cpu_threads} 线程`
+                    ? `${accelerationOptions.cpu_threads} ${t('common.threads')}`
                     : '-'
               }
             >
               {systemInfo
-                ? `${systemInfo.cpu_cores} 核心 / ${systemInfo.cpu_threads} 线程`
+                ? `${systemInfo.cpu_cores} ${t('common.cores')} / ${systemInfo.cpu_threads} ${t('common.threads')}`
                 : accelerationOptions?.cpu_threads
-                  ? `${accelerationOptions.cpu_threads} 线程`
+                  ? `${accelerationOptions.cpu_threads} ${t('common.threads')}`
                   : '-'}
             </span>
           </div>
           <div className="flex items-start gap-2 text-xs">
             <HardDrive className="w-4 h-4 text-[hsl(var(--text-muted))]" />
-            <span className="text-[hsl(var(--text-muted))]">GPU:</span>
+            <span className="text-[hsl(var(--text-muted))]">{t('sidebar.gpu')}:</span>
             <span
               className={cn(
                 'min-w-0 flex-1 break-words leading-snug',
@@ -133,12 +154,12 @@ export const Sidebar: React.FC = () => {
               title={
                 accelerationOptions?.gpu_available
                   ? accelerationOptions.gpu_name
-                  : '不可用'
+                  : t('common.unavailable')
               }
             >
               {accelerationOptions?.gpu_available
                 ? accelerationOptions.gpu_name
-                : '不可用'}
+                : t('common.unavailable')}
             </span>
           </div>
         </div>

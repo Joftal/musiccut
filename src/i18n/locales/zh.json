@@ -1,0 +1,291 @@
+{
+  "common": {
+    "cancel": "取消",
+    "confirm": "确认",
+    "delete": "删除",
+    "save": "保存",
+    "search": "搜索",
+    "clear": "清除",
+    "browse": "浏览",
+    "export": "导出",
+    "import": "导入",
+    "refresh": "刷新",
+    "download": "下载",
+    "preview": "预览",
+    "remove": "移除",
+    "restore": "恢复",
+    "create": "创建",
+    "loading": "加载中...",
+    "processing": "处理中...",
+    "cancelling": "取消中...",
+    "success": "成功",
+    "error": "错误",
+    "warning": "警告",
+    "info": "信息",
+    "unavailable": "不可用",
+    "cores": "核心",
+    "threads": "线程"
+  },
+  "sidebar": {
+    "appSubtitle": "音频指纹剪辑",
+    "projects": "项目",
+    "library": "音乐库",
+    "editor": "编辑器",
+    "settings": "设置",
+    "darkMode": "深色模式",
+    "lightMode": "明亮模式",
+    "cpu": "CPU",
+    "gpu": "GPU"
+  },
+  "projects": {
+    "title": "项目",
+    "subtitle": "管理你的视频剪辑项目",
+    "newProject": "新建项目",
+    "importFolder": "导入文件夹",
+    "searchPlaceholder": "搜索项目...",
+    "emptyTitle": "还没有项目",
+    "emptySubtitle": "点击\"新建项目\"开始",
+    "needsTranscode": "需转码",
+    "segments": "片段",
+    "sourceFileDeleted": "源文件已删除",
+    "dialog": {
+      "newProjectTitle": "新建项目",
+      "videoFile": "视频文件",
+      "selectVideo": "选择视频文件",
+      "deleteProjectTitle": "删除项目",
+      "deleteWarning": "警告：此操作不可撤销！",
+      "deleteConfirm": "确定要删除这个项目吗？删除后将无法恢复。"
+    },
+    "toast": {
+      "selectVideo": "请选择视频文件",
+      "createFailed": "创建项目失败",
+      "skipExisting": "成功导入 0 个项目，跳过 1 个已存在的项目",
+      "deleted": "项目已删除",
+      "deleteFailed": "删除失败",
+      "noVideoInFolder": "该文件夹中没有视频文件",
+      "longFileName": "{{count}} 个文件名较长",
+      "longFileNameDesc": "这些项目导出时可能因路径过长而失败，建议重命名后再导入",
+      "importFailed": "导入失败",
+      "importComplete": "导入完成",
+      "importSuccess": "成功导入 {{created}} 个项目",
+      "importSkipped": "跳过 {{skipped}} 个已存在",
+      "importErrors": "{{errors}} 个失败",
+      "sourceNotExist": "源视频文件不存在",
+      "sourceNotExistDesc": "该项目的源视频文件已被删除或移动，无法进行编辑"
+    },
+    "progress": {
+      "preparing": "准备导入..."
+    }
+  },
+  "library": {
+    "title": "音乐库",
+    "subtitle": "管理音乐指纹库，共 {{count}} 首",
+    "importFolder": "导入文件夹",
+    "importFiles": "导入文件",
+    "searchPlaceholder": "搜索音乐...",
+    "emptyTitle": "音乐库为空",
+    "emptySubtitle": "导入音乐以创建指纹库",
+    "table": {
+      "index": "#",
+      "title": "标题",
+      "duration": "时长",
+      "addedTime": "添加时间"
+    },
+    "sourceDeleted": "源文件已删除（不影响匹配）",
+    "dialog": {
+      "deleteMusicTitle": "删除音乐",
+      "deleteWarning": "警告：此操作不可撤销！",
+      "deleteConfirm": "确定要删除这首音乐吗？删除后将无法恢复。"
+    },
+    "toast": {
+      "importSuccess": "成功导入 {{imported}} 个音频文件",
+      "importSkipped": "跳过 {{skipped}} 个已存在的文件",
+      "importErrors": "{{errors}} 个文件导入失败",
+      "importFailed": "导入失败",
+      "deleted": "已删除",
+      "deleteFailed": "删除失败"
+    }
+  },
+  "editor": {
+    "selectProject": "请从项目列表选择或创建项目",
+    "backToProjects": "返回项目列表",
+    "downloadModelFirst": "请先下载模型",
+    "allMusic": "全部音乐",
+    "songsSelected": "{{count}} 首",
+    "startRecognition": "开始识别",
+    "gpuAcceleration": "GPU 加速",
+    "cpuOnly": "仅 CPU",
+    "segments": {
+      "title": "检测到的片段",
+      "count": "{{count}} 个片段",
+      "empty": "暂无检测到的片段",
+      "emptyHint": "点击\"开始识别\"进行检测",
+      "unknownMusic": "未知音乐"
+    },
+    "timeline": {
+      "normalMode": "正常模式",
+      "customClip": "自定义剪辑",
+      "start": "开始",
+      "end": "结束",
+      "duration": "时长"
+    },
+    "dialog": {
+      "exportTitle": "导出视频",
+      "exportMode": "导出模式",
+      "mergedExport": "合并导出",
+      "separateExport": "分别导出",
+      "mergedDesc": "将所有片段拼接成一个视频文件",
+      "separateDesc": "每个片段单独导出为独立文件",
+      "outputPath": "输出路径",
+      "outputDir": "输出目录",
+      "selectSavePath": "选择保存位置",
+      "selectOutputDir": "选择输出目录",
+      "exportHint": "将以高质量重编码模式导出 {{count}} 个片段。"
+    },
+    "toast": {
+      "noModel": "无可用模型",
+      "downloadModelFirst": "请先在设置页面下载至少一个分离模型",
+      "emptyLibrary": "音乐库为空",
+      "importMusicFirst": "请先导入音乐到音乐库",
+      "videoDurationShort": "视频时长不足",
+      "videoDurationShortDesc": "视频时长 ({{duration}}s) 小于最小匹配时长 ({{minDuration}}s)，可在设置中调整\"匹配窗口时长\"",
+      "modelSwitched": "已切换模型",
+      "modelSwitchedDesc": "已自动切换到已下载的模型 \"{{name}}\"",
+      "processingComplete": "{{name}} 处理完成",
+      "segmentsDetected": "检测到 {{count}} 个匹配片段",
+      "processingFailed": "处理失败",
+      "cancelled": "已取消",
+      "analysisCancelled": "{{name}} 分析任务已取消",
+      "exportComplete": "导出完成",
+      "exportFailed": "导出失败",
+      "exportCancelled": "{{name}} 导出任务已取消",
+      "exportedSegments": "已导出 {{count}} 个片段到 {{path}}",
+      "sourceNotExist": "源视频文件不存在",
+      "sourceNotExistDesc": "该项目的源视频文件已被删除或移动，无法进行编辑",
+      "loadProjectFailed": "加载项目失败",
+      "previewComplete": "预览视频生成完成",
+      "previewCompleteDesc": "现在可以正常播放视频了",
+      "previewFailed": "预览视频生成失败",
+      "previewFailedDesc": "视频可能无法正常播放，但不影响分析和导出功能",
+      "customClipExportCancelled": "{{name}} 自定义剪辑导出已取消",
+      "rangeTooShort": "时间范围太短",
+      "rangeTooShortDesc": "请选择至少 0.1 秒的时间范围"
+    },
+    "progress": {
+      "generatingPreview": "正在生成预览视频（视频格式不支持直接播放）...",
+      "exportingCustomClip": "导出自定义剪辑中..."
+    }
+  },
+  "settings": {
+    "title": "设置",
+    "subtitle": "配置应用程序和处理选项",
+    "systemInfo": {
+      "title": "系统信息",
+      "cpu": "CPU",
+      "gpu": "GPU",
+      "onnxCuda": "ONNX CUDA",
+      "cpuOnlyTag": "仅CPU",
+      "onnxGpuAvailable": "ONNX 模型可使用 GPU 加速",
+      "onnxGpuUnavailable": "未检测到 GPU 加速支持，将使用 CPU 处理"
+    },
+    "matching": {
+      "title": "匹配设置",
+      "minConfidence": "最小置信度",
+      "minConfidenceDesc": "匹配相似度阈值，低于此值不识别为匹配 (0.0-1.0)",
+      "minSegmentDuration": "最小片段时长 (秒)",
+      "minSegmentDurationDesc": "匹配片段的最短时长，短于此值的片段将被忽略",
+      "windowSize": "匹配窗口时长 (秒)",
+      "windowSizeDesc": "每次分析的音频长度，视频时长需大于此值才能分析",
+      "hopSize": "滑动步长 (秒)",
+      "hopSizeDesc": "窗口每次移动的距离，值越小精度越高但速度越慢",
+      "maxGapDuration": "最大允许间隙 (秒)",
+      "maxGapDurationDesc": "同一首歌的匹配间隙超过此值将分割为独立片段"
+    },
+    "separation": {
+      "title": "人声分离设置",
+      "model": "分离模型",
+      "currentSelection": "当前选择",
+      "downloaded": "已下载",
+      "downloading": "下载中",
+      "trackSeparation": "{{count}} 轨分离",
+      "modelHint": "点击\"下载\"按钮预先下载模型。速度评分越高处理越快，质量评分越高分离效果越好。"
+    },
+    "log": {
+      "title": "日志设置",
+      "level": "日志级别",
+      "info": "标准",
+      "infoDesc": "记录关键操作信息",
+      "debug": "调试",
+      "debugDesc": "记录详细调试信息",
+      "trace": "追踪",
+      "traceDesc": "记录所有执行细节",
+      "hint": "更改日志级别需要重启应用后生效。日志文件保存在数据目录的 logs 文件夹中。"
+    },
+    "storage": {
+      "title": "存储管理",
+      "database": "数据库",
+      "cache": "处理缓存",
+      "dataDir": "数据目录",
+      "total": "总计",
+      "clearCache": "清理处理缓存"
+    },
+    "data": {
+      "title": "数据管理",
+      "hint": "以下操作不可撤销，请谨慎操作。",
+      "resetDatabase": "重置数据库",
+      "resetConfig": "重置配置"
+    },
+    "saveSettings": "保存设置",
+    "dialog": {
+      "resetDbTitle": "重置数据库",
+      "resetDbWarning": "警告：此操作不可撤销！",
+      "resetDbDesc": "重置数据库将清空以下所有数据：",
+      "resetDbItem1": "所有项目及其片段信息",
+      "resetDbItem2": "音乐库中的所有音乐和指纹数据",
+      "resetDbConfirm": "确定要继续吗？",
+      "confirmReset": "确认重置",
+      "resetConfigTitle": "重置配置",
+      "resetConfigDesc": "重置配置将把所有设置恢复为默认值，包括：",
+      "resetConfigItem1": "匹配参数设置",
+      "resetConfigItem2": "人声分离设置",
+      "resetConfigItem3": "日志级别设置",
+      "resetConfigItem4": "窗口大小和位置"
+    },
+    "toast": {
+      "saved": "设置已保存",
+      "saveFailed": "保存失败",
+      "cacheCleared": "缓存已清理",
+      "cacheClearedDesc": "已释放 {{size}}",
+      "clearCacheFailed": "清理缓存失败",
+      "dbReset": "数据库已重置",
+      "dbResetDesc": "所有项目和音乐库数据已清空",
+      "dbResetFailed": "重置数据库失败",
+      "configReset": "配置已重置",
+      "configResetDesc": "所有设置已恢复为默认值",
+      "configResetFailed": "重置配置失败",
+      "downloadFailed": "下载失败",
+      "downloadComplete": "下载完成"
+    }
+  },
+  "musicSelector": {
+    "title": "选择匹配音乐",
+    "useFullLibrary": "未选择任何音乐时，将使用全部音乐库进行匹配",
+    "useSelected": "确认选择",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
+    "selected": "已选择 {{count}} 首",
+    "deletedCount": "{{count}} 首已删除",
+    "searchPlaceholder": "搜索音乐...",
+    "emptyLibrary": "音乐库为空",
+    "importFirst": "请先在音乐库页面导入音乐"
+  },
+  "stage": {
+    "idle": "空闲",
+    "extracting": "提取音频",
+    "separating": "分离人声",
+    "matching": "匹配中",
+    "analyzed": "已分析",
+    "exporting": "导出中",
+    "exported": "已导出"
+  }
+}

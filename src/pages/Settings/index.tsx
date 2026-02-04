@@ -1,6 +1,7 @@
 // 设置页面
 
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Settings as SettingsIcon,
   Cpu,
@@ -37,6 +38,7 @@ import * as api from '@/services/api';
 import type { AppConfig, StorageInfo } from '@/types';
 
 const Settings: React.FC = () => {
+  const { t } = useTranslation();
   const {
     systemInfo,
     accelerationOptions,
@@ -94,14 +96,14 @@ const Settings: React.FC = () => {
           setDownloadError(progress.model_id);
           addToast({
             type: 'error',
-            title: '下载失败',
+            title: t('settings.toast.downloadFailed'),
             description: progress.error,
           });
         } else {
           setDownloadComplete(progress.model_id);
           addToast({
             type: 'success',
-            title: '下载完成',
+            title: t('settings.toast.downloadComplete'),
             description: progress.message,
           });
         }
@@ -153,12 +155,12 @@ const Settings: React.FC = () => {
       setLocalConfig(validatedConfig);
       addToast({
         type: 'success',
-        title: '设置已保存',
+        title: t('settings.toast.saved'),
       });
     } catch (error) {
       addToast({
         type: 'error',
-        title: '保存失败',
+        title: t('settings.toast.saveFailed'),
         description: getErrorMessage(error),
       });
     } finally {
@@ -188,14 +190,14 @@ const Settings: React.FC = () => {
       const clearedSize = await api.clearCache();
       addToast({
         type: 'success',
-        title: '缓存已清理',
-        description: `已释放 ${formatSize(clearedSize)}`,
+        title: t('settings.toast.cacheCleared'),
+        description: t('settings.toast.cacheClearedDesc', { size: formatSize(clearedSize) }),
       });
       loadStorageInfo();
     } catch (error) {
       addToast({
         type: 'error',
-        title: '清理缓存失败',
+        title: t('settings.toast.clearCacheFailed'),
         description: getErrorMessage(error),
       });
     } finally {
@@ -209,15 +211,15 @@ const Settings: React.FC = () => {
       await api.resetDatabase();
       addToast({
         type: 'success',
-        title: '数据库已重置',
-        description: '所有项目和音乐库数据已清空',
+        title: t('settings.toast.dbReset'),
+        description: t('settings.toast.dbResetDesc'),
       });
       setShowResetDbDialog(false);
       loadStorageInfo();
     } catch (error) {
       addToast({
         type: 'error',
-        title: '重置数据库失败',
+        title: t('settings.toast.dbResetFailed'),
         description: getErrorMessage(error),
       });
     } finally {
@@ -232,14 +234,14 @@ const Settings: React.FC = () => {
       await loadConfig();
       addToast({
         type: 'success',
-        title: '配置已重置',
-        description: '所有设置已恢复为默认值',
+        title: t('settings.toast.configReset'),
+        description: t('settings.toast.configResetDesc'),
       });
       setShowResetConfigDialog(false);
     } catch (error) {
       addToast({
         type: 'error',
-        title: '重置配置失败',
+        title: t('settings.toast.configResetFailed'),
         description: getErrorMessage(error),
       });
     } finally {
@@ -263,20 +265,20 @@ const Settings: React.FC = () => {
         <header>
           <h1 className="text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2">
             <SettingsIcon className="w-6 h-6" />
-            设置
+            {t('settings.title')}
           </h1>
-          <p className="text-[hsl(var(--text-secondary))] mt-1">配置应用程序和处理选项</p>
+          <p className="text-[hsl(var(--text-secondary))] mt-1">{t('settings.subtitle')}</p>
         </header>
 
         {/* 系统信息 */}
         <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">系统信息</h2>
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">{t('settings.systemInfo.title')}</h2>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-[hsl(var(--secondary))] rounded-lg">
               <div className="flex items-center gap-2 text-[hsl(var(--text-muted))] mb-2">
                 <Cpu className="w-4 h-4" />
-                <span className="text-sm">CPU</span>
+                <span className="text-sm">{t('settings.systemInfo.cpu')}</span>
               </div>
               <p
                 className="text-[hsl(var(--foreground))] font-medium break-words leading-snug"
@@ -286,7 +288,7 @@ const Settings: React.FC = () => {
               </p>
               <p className="text-xs text-[hsl(var(--text-muted))] mt-1">
                 {systemInfo
-                  ? `${systemInfo.cpu_cores} 核心 / ${systemInfo.cpu_threads} 线程`
+                  ? `${systemInfo.cpu_cores} ${t('common.cores')} / ${systemInfo.cpu_threads} ${t('common.threads')}`
                   : '-'}
               </p>
             </div>
@@ -294,23 +296,23 @@ const Settings: React.FC = () => {
             <div className="p-4 bg-[hsl(var(--secondary))] rounded-lg">
               <div className="flex items-center gap-2 text-[hsl(var(--text-muted))] mb-2">
                 <HardDrive className="w-4 h-4" />
-                <span className="text-sm">GPU</span>
+                <span className="text-sm">{t('settings.systemInfo.gpu')}</span>
               </div>
               <p className="text-[hsl(var(--foreground))] font-medium">
                 {accelerationOptions?.gpu_available
                   ? accelerationOptions.gpu_name
-                  : '不可用'}
+                  : t('common.unavailable')}
               </p>
               {accelerationOptions?.gpu_available && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {accelerationOptions?.onnx_gpu_available && (
                     <span className="inline-block px-2 py-0.5 bg-green-600/20 text-green-500 text-xs rounded">
-                      ONNX CUDA
+                      {t('settings.systemInfo.onnxCuda')}
                     </span>
                   )}
                   {!accelerationOptions?.onnx_gpu_available && (
                     <span className="inline-block px-2 py-0.5 bg-yellow-600/20 text-yellow-500 text-xs rounded">
-                      仅CPU
+                      {t('settings.systemInfo.cpuOnlyTag')}
                     </span>
                   )}
                 </div>
@@ -318,8 +320,8 @@ const Settings: React.FC = () => {
               {accelerationOptions?.gpu_available && (
                 <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
                   {accelerationOptions?.onnx_gpu_available
-                    ? 'ONNX 模型可使用 GPU 加速'
-                    : '未检测到 GPU 加速支持，将使用 CPU 处理'}
+                    ? t('settings.systemInfo.onnxGpuAvailable')
+                    : t('settings.systemInfo.onnxGpuUnavailable')}
                 </p>
               )}
             </div>
@@ -329,12 +331,12 @@ const Settings: React.FC = () => {
         {/* 匹配设置 */}
         {localConfig && (
           <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">匹配设置</h2>
+            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">{t('settings.matching.title')}</h2>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  最小置信度
+                  {t('settings.matching.minConfidence')}
                 </label>
                 <Input
                   type="number"
@@ -355,12 +357,12 @@ const Settings: React.FC = () => {
                     updateLocalConfig('matching.min_confidence', val);
                   }}
                 />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">匹配相似度阈值，低于此值不识别为匹配 (0.0-1.0)</p>
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.minConfidenceDesc')}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  最小片段时长 (秒)
+                  {t('settings.matching.minSegmentDuration')}
                 </label>
                 <Input
                   type="number"
@@ -373,12 +375,12 @@ const Settings: React.FC = () => {
                     )
                   }
                 />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">匹配片段的最短时长，短于此值的片段将被忽略</p>
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.minSegmentDurationDesc')}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  匹配窗口时长 (秒)
+                  {t('settings.matching.windowSize')}
                 </label>
                 <Input
                   type="number"
@@ -391,12 +393,12 @@ const Settings: React.FC = () => {
                     )
                   }
                 />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">每次分析的音频长度，视频时长需大于此值才能分析</p>
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.windowSizeDesc')}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  滑动步长 (秒)
+                  {t('settings.matching.hopSize')}
                 </label>
                 <Input
                   type="number"
@@ -409,12 +411,12 @@ const Settings: React.FC = () => {
                     )
                   }
                 />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">窗口每次移动的距离，值越小精度越高但速度越慢</p>
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.hopSizeDesc')}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  最大允许间隙 (秒)
+                  {t('settings.matching.maxGapDuration')}
                 </label>
                 <Input
                   type="number"
@@ -427,7 +429,7 @@ const Settings: React.FC = () => {
                     )
                   }
                 />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">同一首歌的匹配间隙超过此值将分割为独立片段</p>
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.maxGapDurationDesc')}</p>
               </div>
             </div>
           </section>
@@ -436,14 +438,14 @@ const Settings: React.FC = () => {
         {/* 人声分离设置 */}
         {localConfig && (
           <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">人声分离设置</h2>
+            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">{t('settings.separation.title')}</h2>
 
             <div className="space-y-6">
               {/* 模型管理 */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="block text-sm font-medium text-[hsl(var(--text-secondary))]">
-                    分离模型
+                    {t('settings.separation.model')}
                   </label>
                   <Button
                     variant="ghost"
@@ -452,7 +454,7 @@ const Settings: React.FC = () => {
                     loading={modelsLoading}
                   >
                     <RefreshCw className="w-4 h-4 mr-1" />
-                    刷新
+                    {t('common.refresh')}
                   </Button>
                 </div>
 
@@ -497,7 +499,7 @@ const Settings: React.FC = () => {
                               )}
                               {isSelected && (
                                 <span className="text-xs px-2 py-0.5 rounded bg-primary-500/20 text-primary-500">
-                                  当前选择
+                                  {t('settings.separation.currentSelection')}
                                 </span>
                               )}
                             </div>
@@ -534,7 +536,7 @@ const Settings: React.FC = () => {
                                 </div>
                               </div>
                               <span className="text-xs text-[hsl(var(--text-muted))]">
-                                {model.stems} 轨分离
+                                {t('settings.separation.trackSeparation', { count: model.stems })}
                               </span>
                             </div>
                           </div>
@@ -542,13 +544,13 @@ const Settings: React.FC = () => {
                             {downloaded ? (
                               <span className="flex items-center gap-1 text-xs text-green-500">
                                 <Check className="w-4 h-4" />
-                                已下载
+                                {t('settings.separation.downloaded')}
                               </span>
                             ) : downloading ? (
                               <div className="flex flex-col items-end gap-1">
                                 <span className="flex items-center gap-1 text-xs text-blue-500">
                                   <Loader2 className="w-4 h-4 animate-spin" />
-                                  下载中
+                                  {t('settings.separation.downloading')}
                                 </span>
                                 <div className="w-24">
                                   <Progress value={progress} />
@@ -567,7 +569,7 @@ const Settings: React.FC = () => {
                                 }}
                               >
                                 <Download className="w-4 h-4 mr-1" />
-                                下载
+                                {t('common.download')}
                               </Button>
                             )}
                           </div>
@@ -578,7 +580,7 @@ const Settings: React.FC = () => {
                 </div>
 
                 <p className="text-xs text-[hsl(var(--text-muted))] mt-3">
-                  点击"下载"按钮预先下载模型。速度评分越高处理越快，质量评分越高分离效果越好。
+                  {t('settings.separation.modelHint')}
                 </p>
               </div>
             </div>
@@ -590,19 +592,19 @@ const Settings: React.FC = () => {
           <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
             <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4 flex items-center gap-2">
               <FileText className="w-5 h-5" />
-              日志设置
+              {t('settings.log.title')}
             </h2>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-3">
-                  日志级别
+                  {t('settings.log.level')}
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {([
-                    { value: 'info', label: '标准', desc: '记录关键操作信息' },
-                    { value: 'debug', label: '调试', desc: '记录详细调试信息' },
-                    { value: 'trace', label: '追踪', desc: '记录所有执行细节' },
+                    { value: 'info', label: t('settings.log.info'), desc: t('settings.log.infoDesc') },
+                    { value: 'debug', label: t('settings.log.debug'), desc: t('settings.log.debugDesc') },
+                    { value: 'trace', label: t('settings.log.trace'), desc: t('settings.log.traceDesc') },
                   ] as const).map((option) => {
                     const isSelected = localConfig.log_level === option.value || (!localConfig.log_level && option.value === 'info');
                     return (
@@ -626,7 +628,7 @@ const Settings: React.FC = () => {
                   })}
                 </div>
                 <p className="text-xs text-[hsl(var(--text-muted))] mt-3">
-                  更改日志级别需要重启应用后生效。日志文件保存在数据目录的 logs 文件夹中。
+                  {t('settings.log.hint')}
                 </p>
               </div>
             </div>
@@ -636,7 +638,7 @@ const Settings: React.FC = () => {
         {/* 存储管理 */}
         <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">存储管理</h2>
+            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">{t('settings.storage.title')}</h2>
             <Button
               variant="ghost"
               size="sm"
@@ -644,7 +646,7 @@ const Settings: React.FC = () => {
               loading={loadingStorage}
             >
               <RefreshCw className="w-4 h-4 mr-2" />
-              刷新
+              {t('common.refresh')}
             </Button>
           </div>
 
@@ -654,7 +656,7 @@ const Settings: React.FC = () => {
                 <div className="p-4 bg-[hsl(var(--secondary))] rounded-lg">
                   <div className="flex items-center gap-2 text-[hsl(var(--text-muted))] mb-2">
                     <Database className="w-4 h-4" />
-                    <span className="text-sm">数据库</span>
+                    <span className="text-sm">{t('settings.storage.database')}</span>
                   </div>
                   <p className="text-[hsl(var(--foreground))] font-medium">
                     {formatSize(storageInfo.db_size)}
@@ -667,7 +669,7 @@ const Settings: React.FC = () => {
                 <div className="p-4 bg-[hsl(var(--secondary))] rounded-lg">
                   <div className="flex items-center gap-2 text-[hsl(var(--text-muted))] mb-2">
                     <Trash2 className="w-4 h-4" />
-                    <span className="text-sm">处理缓存</span>
+                    <span className="text-sm">{t('settings.storage.cache')}</span>
                   </div>
                   <p className="text-[hsl(var(--foreground))] font-medium">
                     {formatSize(storageInfo.temp_size)}
@@ -678,13 +680,13 @@ const Settings: React.FC = () => {
               <div className="p-4 bg-[hsl(var(--secondary))] rounded-lg">
                 <div className="flex items-center gap-2 text-[hsl(var(--text-muted))] mb-2">
                   <FolderOpen className="w-4 h-4" />
-                  <span className="text-sm">数据目录</span>
+                  <span className="text-sm">{t('settings.storage.dataDir')}</span>
                 </div>
                 <p className="text-sm text-[hsl(var(--text-secondary))] truncate" title={storageInfo.app_dir}>
                   {storageInfo.app_dir}
                 </p>
                 <p className="text-[hsl(var(--foreground))] font-medium mt-1">
-                  总计: {formatSize(storageInfo.total_size)}
+                  {t('settings.storage.total')}: {formatSize(storageInfo.total_size)}
                 </p>
               </div>
 
@@ -696,7 +698,7 @@ const Settings: React.FC = () => {
                   disabled={storageInfo.temp_size === 0}
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
-                  清理处理缓存
+                  {t('settings.storage.clearCache')}
                 </Button>
               </div>
             </div>
@@ -705,9 +707,9 @@ const Settings: React.FC = () => {
 
         {/* 数据管理 */}
         <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">数据管理</h2>
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">{t('settings.data.title')}</h2>
           <p className="text-sm text-[hsl(var(--text-muted))] mb-4">
-            以下操作不可撤销，请谨慎操作。
+            {t('settings.data.hint')}
           </p>
 
           <div className="flex gap-3">
@@ -716,14 +718,14 @@ const Settings: React.FC = () => {
               onClick={() => setShowResetDbDialog(true)}
             >
               <Database className="w-4 h-4 mr-2" />
-              重置数据库
+              {t('settings.data.resetDatabase')}
             </Button>
             <Button
               variant="secondary"
               onClick={() => setShowResetConfigDialog(true)}
             >
               <RotateCcw className="w-4 h-4 mr-2" />
-              重置配置
+              {t('settings.data.resetConfig')}
             </Button>
           </div>
         </section>
@@ -731,7 +733,7 @@ const Settings: React.FC = () => {
         {/* 保存按钮 */}
         <div className="flex justify-end">
           <Button variant="primary" onClick={handleSave} loading={saving}>
-            保存设置
+            {t('settings.saveSettings')}
           </Button>
         </div>
       </div>
@@ -740,36 +742,36 @@ const Settings: React.FC = () => {
       <Dialog open={showResetDbDialog} onOpenChange={setShowResetDbDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>重置数据库</DialogTitle>
+            <DialogTitle>{t('settings.dialog.resetDbTitle')}</DialogTitle>
             <DialogClose />
           </DialogHeader>
           <DialogBody>
             <div className="space-y-4">
               <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <p className="text-red-500 font-medium">警告：此操作不可撤销！</p>
+                <p className="text-red-500 font-medium">{t('settings.dialog.resetDbWarning')}</p>
               </div>
               <p className="text-[hsl(var(--text-secondary))]">
-                重置数据库将清空以下所有数据：
+                {t('settings.dialog.resetDbDesc')}
               </p>
               <ul className="list-disc list-inside text-[hsl(var(--text-muted))] space-y-1">
-                <li>所有项目及其片段信息</li>
-                <li>音乐库中的所有音乐和指纹数据</li>
+                <li>{t('settings.dialog.resetDbItem1')}</li>
+                <li>{t('settings.dialog.resetDbItem2')}</li>
               </ul>
               <p className="text-[hsl(var(--text-secondary))]">
-                确定要继续吗？
+                {t('settings.dialog.resetDbConfirm')}
               </p>
             </div>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowResetDbDialog(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={handleResetDatabase}
               loading={resettingDb}
             >
-              确认重置
+              {t('settings.dialog.confirmReset')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -779,35 +781,35 @@ const Settings: React.FC = () => {
       <Dialog open={showResetConfigDialog} onOpenChange={setShowResetConfigDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>重置配置</DialogTitle>
+            <DialogTitle>{t('settings.dialog.resetConfigTitle')}</DialogTitle>
             <DialogClose />
           </DialogHeader>
           <DialogBody>
             <div className="space-y-4">
               <p className="text-[hsl(var(--text-secondary))]">
-                重置配置将把所有设置恢复为默认值，包括：
+                {t('settings.dialog.resetConfigDesc')}
               </p>
               <ul className="list-disc list-inside text-[hsl(var(--text-muted))] space-y-1">
-                <li>匹配参数设置</li>
-                <li>人声分离设置</li>
-                <li>日志级别设置</li>
-                <li>窗口大小和位置</li>
+                <li>{t('settings.dialog.resetConfigItem1')}</li>
+                <li>{t('settings.dialog.resetConfigItem2')}</li>
+                <li>{t('settings.dialog.resetConfigItem3')}</li>
+                <li>{t('settings.dialog.resetConfigItem4')}</li>
               </ul>
               <p className="text-[hsl(var(--text-secondary))]">
-                确定要继续吗？
+                {t('settings.dialog.resetDbConfirm')}
               </p>
             </div>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowResetConfigDialog(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
               onClick={handleResetConfig}
               loading={resettingConfig}
             >
-              确认重置
+              {t('settings.dialog.confirmReset')}
             </Button>
           </DialogFooter>
         </DialogContent>

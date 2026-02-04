@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Plus,
   Folder,
@@ -68,6 +69,7 @@ const getDisplayFormat = (format: string): string => {
 };
 
 const Projects: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // 使用 selector 分离订阅，避免 projectStatus 变化时触发不必要的重渲染
   const projects = useProjectStore((state) => state.projects);
@@ -157,7 +159,7 @@ const Projects: React.FC = () => {
     if (!videoPath) {
       addToast({
         type: 'error',
-        title: '请选择视频文件',
+        title: t('projects.toast.selectVideo'),
       });
       return;
     }
@@ -177,12 +179,12 @@ const Projects: React.FC = () => {
       if (errorMessage.includes('已创建过项目')) {
         addToast({
           type: 'warning',
-          title: '成功导入 0 个项目，跳过 1 个已存在的项目',
+          title: t('projects.toast.skipExisting'),
         });
       } else {
         addToast({
           type: 'error',
-          title: '创建项目失败',
+          title: t('projects.toast.createFailed'),
           description: errorMessage,
         });
       }
@@ -195,8 +197,8 @@ const Projects: React.FC = () => {
     if (!project.file_exists) {
       addToast({
         type: 'error',
-        title: '源视频文件不存在',
-        description: '该项目的源视频文件已被删除或移动，无法进行编辑',
+        title: t('projects.toast.sourceNotExist'),
+        description: t('projects.toast.sourceNotExistDesc'),
       });
       return;
     }
@@ -217,14 +219,14 @@ const Projects: React.FC = () => {
       await deleteProject(deleteTargetId);
       addToast({
         type: 'success',
-        title: '项目已删除',
+        title: t('projects.toast.deleted'),
       });
       setShowDeleteDialog(false);
       setDeleteTargetId(null);
     } catch (error) {
       addToast({
         type: 'error',
-        title: '删除失败',
+        title: t('projects.toast.deleteFailed'),
       });
     } finally {
       setDeleting(false);
@@ -245,7 +247,7 @@ const Projects: React.FC = () => {
       // 扫描视频文件
       const videoFiles = await api.scanVideoFiles(folderPath);
       if (videoFiles.length === 0) {
-        addToast({ type: 'warning', title: '该文件夹中没有视频文件' });
+        addToast({ type: 'warning', title: t('projects.toast.noVideoInFolder') });
         return;
       }
 
@@ -255,16 +257,16 @@ const Projects: React.FC = () => {
         // 提取文件名用于显示
         const fileNames = longNameFiles.map(path => getFileNameWithoutExt(path));
         const displayNames = fileNames.slice(0, 5).join('\n');
-        const moreCount = fileNames.length > 5 ? `\n...还有 ${fileNames.length - 5} 个` : '';
+        const moreCount = fileNames.length > 5 ? `\n...${t('projects.toast.longFileNameDesc')}` : '';
 
         addToast({
           type: 'warning',
-          title: `${longNameFiles.length} 个文件名较长`,
-          description: `${displayNames}${moreCount}\n\n这些项目导出时可能因路径过长而失败，建议重命名后再导入`,
+          title: t('projects.toast.longFileName', { count: longNameFiles.length }),
+          description: `${displayNames}${moreCount}`,
         });
       }
 
-      setImportProgress({ current: 0, total: videoFiles.length, message: '准备导入...' });
+      setImportProgress({ current: 0, total: videoFiles.length, message: t('projects.progress.preparing') });
 
       // 监听进度
       unlisten = await api.onBatchCreateProgress((progress) => {
@@ -276,13 +278,13 @@ const Projects: React.FC = () => {
         // 构建消息
         let message = '';
         if (result.created > 0) {
-          message = `成功导入 ${result.created} 个项目`;
+          message = t('projects.toast.importSuccess', { created: result.created });
         }
         if (result.skipped > 0) {
-          message += message ? `，跳过 ${result.skipped} 个已存在` : `跳过 ${result.skipped} 个已存在的项目`;
+          message += message ? `，${t('projects.toast.importSkipped', { skipped: result.skipped })}` : t('projects.toast.importSkipped', { skipped: result.skipped });
         }
         if (result.errors > 0) {
-          message += message ? `，${result.errors} 个失败` : `${result.errors} 个项目导入失败`;
+          message += message ? `，${t('projects.toast.importErrors', { errors: result.errors })}` : t('projects.toast.importErrors', { errors: result.errors });
         }
 
         // 确定 Toast 类型
@@ -295,12 +297,12 @@ const Projects: React.FC = () => {
 
         // 构建错误详情
         const description = result.error_messages && result.error_messages.length > 0
-          ? result.error_messages.slice(0, 5).join('\n') + (result.error_messages.length > 5 ? `\n...还有 ${result.error_messages.length - 5} 个错误` : '')
+          ? result.error_messages.slice(0, 5).join('\n') + (result.error_messages.length > 5 ? `\n...` : '')
           : undefined;
 
         addToast({
           type: toastType,
-          title: message || '导入完成',
+          title: message || t('projects.toast.importComplete'),
           description,
         });
       });
@@ -313,7 +315,7 @@ const Projects: React.FC = () => {
     } catch (error) {
       addToast({
         type: 'error',
-        title: '导入失败',
+        title: t('projects.toast.importFailed'),
         description: getErrorMessage(error),
       });
     } finally {
@@ -325,22 +327,27 @@ const Projects: React.FC = () => {
     }
   };
 
+  // 获取阶段标签的翻译
+  const getStageLabel = (stage: string) => {
+    return t(`stage.${stage}`);
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* 头部 */}
       <header className="flex items-center justify-between p-4 border-b border-[hsl(var(--border))]">
         <div>
-          <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">项目</h1>
-          <p className="text-sm text-[hsl(var(--text-secondary))]">管理你的视频剪辑项目</p>
+          <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">{t('projects.title')}</h1>
+          <p className="text-sm text-[hsl(var(--text-secondary))]">{t('projects.subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={handleImportFolder} disabled={importing}>
             <FolderOpen className="w-4 h-4 mr-2" />
-            导入文件夹
+            {t('projects.importFolder')}
           </Button>
           <Button variant="primary" onClick={() => setShowNewDialog(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            新建项目
+            {t('projects.newProject')}
           </Button>
         </div>
       </header>
@@ -349,14 +356,14 @@ const Projects: React.FC = () => {
       <div className="p-4 border-b border-[hsl(var(--border))]">
         <div className="flex gap-2">
           <Input
-            placeholder="搜索项目..."
+            placeholder={t('projects.searchPlaceholder')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             icon={<Search className="w-4 h-4" />}
             wrapperClassName="flex-1"
           />
           <Button variant="secondary" onClick={() => setSearchInput('')} disabled={!searchInput}>
-            清除
+            {t('common.clear')}
           </Button>
         </div>
       </div>
@@ -388,8 +395,8 @@ const Projects: React.FC = () => {
         ) : projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-[hsl(var(--text-muted))]">
             <Folder className="w-16 h-16 mb-4 opacity-50" />
-            <p className="text-lg">还没有项目</p>
-            <p className="text-sm mt-1">点击"新建项目"开始</p>
+            <p className="text-lg">{t('projects.emptyTitle')}</p>
+            <p className="text-sm mt-1">{t('projects.emptySubtitle')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -433,7 +440,7 @@ const Projects: React.FC = () => {
                   {!project.file_exists && (
                     <div className="absolute top-2 left-2 px-2 py-1 bg-yellow-500/90 text-white text-xs rounded-full flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
-                      源文件已删除
+                      {t('projects.sourceFileDeleted')}
                     </div>
                   )}
                 </div>
@@ -456,7 +463,7 @@ const Projects: React.FC = () => {
                     </span>
                     {needsTranscode(project.video_info) && (
                       <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 rounded text-[10px]">
-                        需转码
+                        {t('projects.needsTranscode')}
                       </span>
                     )}
                   </div>
@@ -473,13 +480,13 @@ const Projects: React.FC = () => {
                             <>
                               <Check className="w-3 h-3 text-green-500" />
                               <span className={STAGE_CONFIG[projectStatus[project.id].stage].color}>
-                                {STAGE_CONFIG[projectStatus[project.id].stage].label}
+                                {getStageLabel(projectStatus[project.id].stage)}
                               </span>
                             </>
                           ) : (
                             <>
                               <span className={STAGE_CONFIG[projectStatus[project.id].stage].color}>
-                                {STAGE_CONFIG[projectStatus[project.id].stage].label}
+                                {getStageLabel(projectStatus[project.id].stage)}
                               </span>
                               {/* 4格进度条（每格25%） */}
                               <div className="flex gap-0.5">
@@ -515,7 +522,7 @@ const Projects: React.FC = () => {
                 {/* 片段数量 */}
                 {project.segments.length > 0 && (
                   <div className="absolute top-2 right-2 px-2 py-1 bg-primary-600 text-white text-xs rounded-full">
-                    {project.segments.length} 片段
+                    {project.segments.length} {t('projects.segments')}
                   </div>
                 )}
               </div>
@@ -534,23 +541,23 @@ const Projects: React.FC = () => {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建项目</DialogTitle>
+            <DialogTitle>{t('projects.dialog.newProjectTitle')}</DialogTitle>
             <DialogClose />
           </DialogHeader>
           <DialogBody className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1.5">
-                视频文件
+                {t('projects.dialog.videoFile')}
               </label>
               <div className="flex gap-2">
                 <Input
-                  placeholder="选择视频文件"
+                  placeholder={t('projects.dialog.selectVideo')}
                   value={videoPath}
                   readOnly
                   wrapperClassName="flex-1"
                 />
                 <Button variant="secondary" onClick={handleSelectVideo}>
-                  浏览
+                  {t('common.browse')}
                 </Button>
               </div>
               {/* 路径长度警告 */}
@@ -561,7 +568,7 @@ const Projects: React.FC = () => {
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowNewDialog(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -569,7 +576,7 @@ const Projects: React.FC = () => {
               loading={creating}
               disabled={!videoPath}
             >
-              创建
+              {t('common.create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -579,29 +586,29 @@ const Projects: React.FC = () => {
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除项目</DialogTitle>
+            <DialogTitle>{t('projects.dialog.deleteProjectTitle')}</DialogTitle>
             <DialogClose />
           </DialogHeader>
           <DialogBody>
             <div className="space-y-4">
               <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <p className="text-red-500 font-medium">警告：此操作不可撤销！</p>
+                <p className="text-red-500 font-medium">{t('projects.dialog.deleteWarning')}</p>
               </div>
               <p className="text-[hsl(var(--text-secondary))]">
-                确定要删除这个项目吗？删除后将无法恢复。
+                {t('projects.dialog.deleteConfirm')}
               </p>
             </div>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowDeleteDialog(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={confirmDeleteProject}
               loading={deleting}
             >
-              删除
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

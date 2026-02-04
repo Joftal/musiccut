@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { convertFileSrc } from '@tauri-apps/api/tauri';
 import { join } from '@tauri-apps/api/path';
 import {
@@ -57,12 +58,13 @@ const getDefaultExportPaths = (sourceVideoPath: string) => {
   const ext = fullName.match(/\.[^.]+$/)?.[0] || '.mp4';
   const sourceDir = sourceVideoPath.split(/[/\\]/).slice(0, -1).join('\\');
   return {
-    mergedPath: `${sourceDir}\\${videoName}_合并${ext}`,
+    mergedPath: `${sourceDir}\\${videoName}_merged${ext}`,
     separateDir: sourceDir,
   };
 };
 
 const Editor: React.FC = () => {
+  const { t } = useTranslation();
   const { projectId } = useParams();
   const navigate = useNavigate();
   const { addToast } = useToast();
@@ -148,15 +150,15 @@ const Editor: React.FC = () => {
         if (project && !project.file_exists) {
           addToast({
             type: 'error',
-            title: '源视频文件不存在',
-            description: '该项目的源视频文件已被删除或移动，无法进行编辑',
+            title: t('editor.toast.sourceNotExist'),
+            description: t('editor.toast.sourceNotExistDesc'),
           });
           navigate('/');
         }
       }).catch((error) => {
         addToast({
           type: 'error',
-          title: '加载项目失败',
+          title: t('editor.toast.loadProjectFailed'),
           description: error.message,
         });
         navigate('/');
@@ -350,15 +352,15 @@ const Editor: React.FC = () => {
 
         addToast({
           type: 'success',
-          title: '预览视频生成完成',
-          description: '现在可以正常播放视频了',
+          title: t('editor.toast.previewComplete'),
+          description: t('editor.toast.previewCompleteDesc'),
         });
       } catch (error) {
         console.error('[preview] failed to generate preview', error);
         addToast({
           type: 'warning',
-          title: '预览视频生成失败',
-          description: '视频可能无法正常播放，但不影响分析和导出功能',
+          title: t('editor.toast.previewFailed'),
+          description: t('editor.toast.previewFailedDesc'),
         });
       } finally {
         unlistenProgress?.();
@@ -474,8 +476,8 @@ const Editor: React.FC = () => {
     if (end - start < 0.1) {
       addToast({
         type: 'warning',
-        title: '时间范围太短',
-        description: '请选择至少 0.1 秒的时间范围',
+        title: t('editor.toast.rangeTooShort'),
+        description: t('editor.toast.rangeTooShortDesc'),
       });
       return;
     }
@@ -485,7 +487,7 @@ const Editor: React.FC = () => {
     const videoName = fullName.replace(/\.[^.]+$/, '');
     const ext = fullName.match(/\.[^.]+$/)?.[0] || '.mp4';
     const sourceDir = currentProject.source_video_path.split(/[/\\]/).slice(0, -1).join('\\');
-    const defaultPath = `${sourceDir}\\${videoName}_自定义剪辑_${formatDuration(start)}-${formatDuration(end)}${ext}`.replace(/:/g, '-');
+    const defaultPath = `${sourceDir}\\${videoName}_clip_${formatDuration(start)}-${formatDuration(end)}${ext}`.replace(/:/g, '-');
 
     // 直接打开文件选择对话框
     const savePath = await api.saveFileDialog(defaultPath, [
@@ -495,13 +497,13 @@ const Editor: React.FC = () => {
 
     // 使用全局处理状态
     const { setProcessing, setProcessingProgress } = useEditorStore.getState();
-    setProcessing(true, '导出自定义剪辑中...');
+    setProcessing(true, t('editor.progress.exportingCustomClip'));
 
     try {
       await api.exportCustomClip(currentProject.id, start, end, savePath);
       addToast({
         type: 'success',
-        title: '导出完成',
+        title: t('editor.toast.exportComplete'),
         description: savePath,
       });
       // 导出成功后退出自定义剪辑模式
@@ -511,14 +513,14 @@ const Editor: React.FC = () => {
       if (!errorMsg.includes('取消')) {
         addToast({
           type: 'error',
-          title: '导出失败',
+          title: t('editor.toast.exportFailed'),
           description: errorMsg,
         });
       } else {
         addToast({
           type: 'info',
-          title: '已取消',
-          description: `${currentProject.name} 自定义剪辑导出已取消`,
+          title: t('editor.toast.cancelled'),
+          description: t('editor.toast.customClipExportCancelled', { name: currentProject.name }),
         });
       }
     } finally {
@@ -554,8 +556,8 @@ const Editor: React.FC = () => {
     if (!hasDownloadedModels()) {
       addToast({
         type: 'error',
-        title: '无可用模型',
-        description: '请先在设置页面下载至少一个分离模型',
+        title: t('editor.toast.noModel'),
+        description: t('editor.toast.downloadModelFirst'),
       });
       return;
     }
@@ -563,8 +565,8 @@ const Editor: React.FC = () => {
     if (musicList.length === 0) {
       addToast({
         type: 'warning',
-        title: '音乐库为空',
-        description: '请先导入音乐到音乐库',
+        title: t('editor.toast.emptyLibrary'),
+        description: t('editor.toast.importMusicFirst'),
       });
       return;
     }
@@ -574,8 +576,8 @@ const Editor: React.FC = () => {
     if (duration < windowSize) {
       addToast({
         type: 'error',
-        title: '视频时长不足',
-        description: `视频时长 (${duration.toFixed(1)}s) 小于最小匹配时长 (${windowSize.toFixed(1)}s)，可在设置中调整"匹配窗口时长"`,
+        title: t('editor.toast.videoDurationShort'),
+        description: t('editor.toast.videoDurationShortDesc', { duration: duration.toFixed(1), minDuration: windowSize.toFixed(1) }),
       });
       return;
     }
@@ -589,14 +591,14 @@ const Editor: React.FC = () => {
         setSelectedModelId(firstDownloaded.id);
         addToast({
           type: 'info',
-          title: '已切换模型',
-          description: `已自动切换到已下载的模型 "${firstDownloaded.name}"`,
+          title: t('editor.toast.modelSwitched'),
+          description: t('editor.toast.modelSwitchedDesc', { name: firstDownloaded.name }),
         });
       } else {
         addToast({
           type: 'error',
-          title: '无可用模型',
-          description: '请先在设置页面下载至少一个分离模型',
+          title: t('editor.toast.noModel'),
+          description: t('editor.toast.downloadModelFirst'),
         });
         return;
       }
@@ -623,7 +625,7 @@ const Editor: React.FC = () => {
       // 使用应用临时目录存放中间文件
       const tempDir = appDir ? await join(appDir, 'temp') : '';
       if (!tempDir) {
-        throw new Error('无法获取应用临时目录');
+        throw new Error(t('editor.toast.processingFailed'));
       }
 
       // 1. 提取音频
@@ -649,22 +651,22 @@ const Editor: React.FC = () => {
 
       addToast({
         type: 'success',
-        title: `${projectName} 处理完成`,
-        description: `检测到 ${segmentCount} 个匹配片段`,
+        title: t('editor.toast.processingComplete', { name: projectName }),
+        description: t('editor.toast.segmentsDetected', { count: segmentCount }),
       });
     } catch (error) {
       const errorMsg = getErrorMessage(error);
       if (!errorMsg.includes('取消')) {
         addToast({
           type: 'error',
-          title: '处理失败',
+          title: t('editor.toast.processingFailed'),
           description: errorMsg,
         });
       } else {
         addToast({
           type: 'info',
-          title: '已取消',
-          description: `${projectName} 分析任务已取消`,
+          title: t('editor.toast.cancelled'),
+          description: t('editor.toast.analysisCancelled', { name: projectName }),
         });
       }
     }
@@ -694,7 +696,7 @@ const Editor: React.FC = () => {
 
         addToast({
           type: 'success',
-          title: '导出完成',
+          title: t('editor.toast.exportComplete'),
           description: finalPath,
         });
       } catch (error) {
@@ -702,14 +704,14 @@ const Editor: React.FC = () => {
         if (!errorMsg.includes('取消')) {
           addToast({
             type: 'error',
-            title: '导出失败',
+            title: t('editor.toast.exportFailed'),
             description: errorMsg,
           });
         } else {
           addToast({
             type: 'info',
-            title: '已取消',
-            description: `${projectName} 导出任务已取消`,
+            title: t('editor.toast.cancelled'),
+            description: t('editor.toast.exportCancelled', { name: projectName }),
           });
         }
       }
@@ -725,29 +727,29 @@ const Editor: React.FC = () => {
       // 先关闭弹窗，导出任务在后台继续执行
       setShowExportDialog(false);
 
-      const projectName = currentProject?.name || '项目';
+      const projectName = currentProject?.name || 'Project';
 
       try {
         const result = await exportVideoSeparately(finalPath);
 
         addToast({
           type: 'success',
-          title: '导出完成',
-          description: `已导出 ${result.exportedCount} 个片段到 ${finalPath}`,
+          title: t('editor.toast.exportComplete'),
+          description: t('editor.toast.exportedSegments', { count: result.exportedCount, path: finalPath }),
         });
       } catch (error) {
         const errorMsg = getErrorMessage(error);
         if (!errorMsg.includes('取消')) {
           addToast({
             type: 'error',
-            title: '导出失败',
+            title: t('editor.toast.exportFailed'),
             description: errorMsg,
           });
         } else {
           addToast({
             type: 'info',
-            title: '已取消',
-            description: `${projectName} 导出任务已取消`,
+            title: t('editor.toast.cancelled'),
+            description: t('editor.toast.exportCancelled', { name: projectName }),
           });
         }
       }
@@ -759,13 +761,13 @@ const Editor: React.FC = () => {
       <div className="h-full flex items-center justify-center">
         <div className="text-center text-[hsl(var(--text-muted))]">
           <Music className="w-16 h-16 mx-auto mb-4 opacity-50" />
-          <p>请从项目列表选择或创建项目</p>
+          <p>{t('editor.selectProject')}</p>
           <Button
             variant="primary"
             className="mt-4"
             onClick={() => navigate('/')}
           >
-            返回项目列表
+            {t('editor.backToProjects')}
           </Button>
         </div>
       </div>
@@ -796,7 +798,7 @@ const Editor: React.FC = () => {
             </span>
           ) : (
             <span className="px-3 py-1.5 text-sm text-yellow-500">
-              请先下载模型
+              {t('editor.downloadModelFirst')}
             </span>
           )}
 
@@ -806,8 +808,8 @@ const Editor: React.FC = () => {
             onChange={(e) => setAcceleration(e.target.value)}
             className="px-3 py-1.5 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded-lg text-sm text-[hsl(var(--foreground))]"
           >
-            <option value="gpu">GPU 加速</option>
-            <option value="cpu">仅 CPU</option>
+            <option value="gpu">{t('editor.gpuAcceleration')}</option>
+            <option value="cpu">{t('editor.cpuOnly')}</option>
           </select>
 
           {/* 自定义音乐库选择 */}
@@ -818,7 +820,7 @@ const Editor: React.FC = () => {
             title={useCustomMusicLibrary ? `已选择 ${selectedMusicIds.length} 首音乐` : '选择匹配音乐'}
           >
             <Library className="w-4 h-4 mr-2" />
-            {useCustomMusicLibrary ? `${selectedMusicIds.length} 首` : '全部音乐'}
+            {useCustomMusicLibrary ? t('editor.songsSelected', { count: selectedMusicIds.length }) : t('editor.allMusic')}
           </Button>
 
           <Button
@@ -830,12 +832,12 @@ const Editor: React.FC = () => {
             {processing ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                处理中...
+                {t('common.processing')}
               </>
             ) : (
               <>
                 <AudioWaveform className="w-4 h-4 mr-2" />
-                开始识别
+                {t('editor.startRecognition')}
               </>
             )}
           </Button>
@@ -849,10 +851,10 @@ const Editor: React.FC = () => {
               {cancelling ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  取消中...
+                  {t('common.cancelling')}
                 </>
               ) : (
-                '取消'
+                t('common.cancel')
               )}
             </Button>
           )}
@@ -871,7 +873,7 @@ const Editor: React.FC = () => {
             disabled={processing || segments.filter(s => s.status !== 'removed').length === 0}
           >
             <Share2 className="w-4 h-4 mr-2" />
-            导出
+            {t('common.export')}
           </Button>
         </div>
       </header>
@@ -881,7 +883,7 @@ const Editor: React.FC = () => {
         <div className="px-4 py-2 bg-[hsl(var(--card-bg))] border-b border-[hsl(var(--border))]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm text-[hsl(var(--text-secondary))]">
-              {cancelling ? '正在取消...' : processingMessage}
+              {cancelling ? t('common.cancelling') : processingMessage}
             </span>
             <span className="text-sm text-[hsl(var(--text-muted))]">
               {(processingProgress * 100).toFixed(1)}%
@@ -896,7 +898,7 @@ const Editor: React.FC = () => {
         <div className="px-4 py-2 bg-[hsl(var(--card-bg))] border-b border-[hsl(var(--border))]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm text-[hsl(var(--text-secondary))]">
-              正在生成预览视频（视频格式不支持直接播放）...
+              {t('editor.progress.generatingPreview')}
             </span>
             <span className="text-sm text-[hsl(var(--text-muted))]">
               {(previewProgress * 100).toFixed(1)}%
@@ -1008,17 +1010,17 @@ const Editor: React.FC = () => {
         {/* 片段列表 */}
         <aside className="w-80 border-l border-[hsl(var(--border))] flex flex-col">
           <div className="p-3 border-b border-[hsl(var(--border))]">
-            <h3 className="font-medium text-[hsl(var(--foreground))]">检测到的片段</h3>
+            <h3 className="font-medium text-[hsl(var(--foreground))]">{t('editor.segments.title')}</h3>
             <p className="text-xs text-[hsl(var(--text-muted))] mt-1">
-              {segments.filter((s) => s.status !== 'removed').length} 个片段
+              {t('editor.segments.count', { count: segments.filter((s) => s.status !== 'removed').length })}
             </p>
           </div>
 
           <div className="flex-1 overflow-auto">
             {segments.length === 0 ? (
               <div className="p-4 text-center text-[hsl(var(--text-muted))]">
-                <p>暂无检测到的片段</p>
-                <p className="text-xs mt-1">点击"开始识别"进行检测</p>
+                <p>{t('editor.segments.empty')}</p>
+                <p className="text-xs mt-1">{t('editor.segments.emptyHint')}</p>
               </div>
             ) : (
               <div className="p-2 space-y-2">
@@ -1051,7 +1053,7 @@ const Editor: React.FC = () => {
                             {index + 1}
                           </span>
                           <span className="text-sm font-medium text-[hsl(var(--foreground))] truncate">
-                            {segment.music_title || '未知音乐'}
+                            {segment.music_title || t('editor.segments.unknownMusic')}
                           </span>
                         </div>
                         <span className="text-xs text-[hsl(var(--text-muted))]">
@@ -1071,7 +1073,7 @@ const Editor: React.FC = () => {
                           }}
                           className="px-2 py-0.5 text-xs text-red-500 hover:bg-red-500/20 rounded"
                         >
-                          移除
+                          {t('common.remove')}
                         </button>
                       )}
                       {segment.status === 'removed' && (
@@ -1082,7 +1084,7 @@ const Editor: React.FC = () => {
                           }}
                           className="px-2 py-0.5 text-xs text-blue-500 hover:bg-blue-500/20 rounded"
                         >
-                          恢复
+                          {t('common.restore')}
                         </button>
                       )}
                     </div>
@@ -1108,9 +1110,9 @@ const Editor: React.FC = () => {
               }
             }}
             disabled={processing}
-            title={processing ? '处理中，无法切换模式' : ''}
+            title={processing ? '' : ''}
           >
-            正常模式
+            {t('editor.timeline.normalMode')}
           </Button>
           <Button
             variant={customClipMode ? 'primary' : 'secondary'}
@@ -1121,10 +1123,10 @@ const Editor: React.FC = () => {
               }
             }}
             disabled={processing}
-            title={processing ? '处理中，无法切换模式' : ''}
+            title={processing ? '' : ''}
           >
             <Scissors className="w-4 h-4 mr-1" />
-            自定义剪辑
+            {t('editor.timeline.customClip')}
           </Button>
 
           {/* 自定义剪辑模式下的控制面板 */}
@@ -1132,7 +1134,7 @@ const Editor: React.FC = () => {
             <>
               <div className="h-4 w-px bg-[hsl(var(--border))] mx-2" />
               <div className="flex items-center gap-2">
-                <span className="text-xs text-[hsl(var(--text-muted))]">开始:</span>
+                <span className="text-xs text-[hsl(var(--text-muted))]">{t('editor.timeline.start')}:</span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1156,7 +1158,7 @@ const Editor: React.FC = () => {
                   className="w-32 h-7 text-xs"
                   fps={currentProject?.video_info.fps}
                 />
-                <span className="text-xs text-[hsl(var(--text-muted))]">结束:</span>
+                <span className="text-xs text-[hsl(var(--text-muted))]">{t('editor.timeline.end')}:</span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1187,7 +1189,7 @@ const Editor: React.FC = () => {
                       'text-xs font-mono',
                       isValid ? 'text-[hsl(var(--text-secondary))]' : 'text-[hsl(var(--text-muted))]'
                     )}>
-                      时长: {formatPreciseTime(clipDuration)}
+                      {t('editor.timeline.duration')}: {formatPreciseTime(clipDuration)}
                     </span>
                   );
                 })()}
@@ -1198,10 +1200,10 @@ const Editor: React.FC = () => {
                 size="sm"
                 onClick={handlePreviewCustomClip}
                 disabled={!getCustomClipValidRange().isValid}
-                title="预览选中片段"
+                title={t('common.preview')}
               >
                 <Eye className="w-4 h-4 mr-1" />
-                预览
+                {t('common.preview')}
               </Button>
               <Button
                 variant="success"
@@ -1211,7 +1213,7 @@ const Editor: React.FC = () => {
                 loading={processing}
               >
                 <Share2 className="w-4 h-4 mr-1" />
-                导出
+                {t('common.export')}
               </Button>
             </>
           )}
@@ -1302,7 +1304,7 @@ const Editor: React.FC = () => {
                     className="w-4 h-3 bg-green-500 shrink-0"
                     style={{ clipPath: 'polygon(0% 100%, 50% 0%, 100% 100%)' }}
                   />
-                  <span className="text-xs text-green-600 font-medium">开始</span>
+                  <span className="text-xs text-green-600 font-medium">{t('editor.timeline.start')}</span>
                 </div>
               )}
               {/* 结束标记 - 红色三角形向上指 */}
@@ -1318,7 +1320,7 @@ const Editor: React.FC = () => {
                     className="w-4 h-3 bg-red-500 shrink-0"
                     style={{ clipPath: 'polygon(0% 100%, 50% 0%, 100% 100%)' }}
                   />
-                  <span className="text-xs text-red-600 font-medium">结束</span>
+                  <span className="text-xs text-red-600 font-medium">{t('editor.timeline.end')}</span>
                 </div>
               )}
             </>
@@ -1330,14 +1332,14 @@ const Editor: React.FC = () => {
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>导出视频</DialogTitle>
+            <DialogTitle>{t('editor.dialog.exportTitle')}</DialogTitle>
             <DialogClose />
           </DialogHeader>
           <DialogBody className="space-y-4">
             {/* 导出模式选择 */}
             <div>
               <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                导出模式
+                {t('editor.dialog.exportMode')}
               </label>
               <div className="flex gap-2">
                 <Button
@@ -1353,7 +1355,7 @@ const Editor: React.FC = () => {
                   }}
                   className="flex-1"
                 >
-                  合并导出
+                  {t('editor.dialog.mergedExport')}
                 </Button>
                 <Button
                   variant={exportMode === 'separate' ? 'primary' : 'secondary'}
@@ -1368,25 +1370,25 @@ const Editor: React.FC = () => {
                   }}
                   className="flex-1"
                 >
-                  分别导出
+                  {t('editor.dialog.separateExport')}
                 </Button>
               </div>
               <p className="text-xs text-[hsl(var(--text-muted))] mt-1.5">
                 {exportMode === 'merged'
-                  ? '将所有片段拼接成一个视频文件'
-                  : '每个片段单独导出为独立文件'}
+                  ? t('editor.dialog.mergedDesc')
+                  : t('editor.dialog.separateDesc')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1.5">
-                {exportMode === 'merged' ? '输出路径' : '输出目录'}
+                {exportMode === 'merged' ? t('editor.dialog.outputPath') : t('editor.dialog.outputDir')}
               </label>
               <div className="flex gap-2">
                 <Input
                   value={exportPath}
                   readOnly
-                  placeholder={exportMode === 'merged' ? '选择保存位置' : '选择输出目录'}
+                  placeholder={exportMode === 'merged' ? t('editor.dialog.selectSavePath') : t('editor.dialog.selectOutputDir')}
                   className="flex-1"
                 />
                 <Button
@@ -1403,7 +1405,7 @@ const Editor: React.FC = () => {
                     }
                   }}
                 >
-                  浏览
+                  {t('common.browse')}
                 </Button>
               </div>
               {/* 路径长度警告 */}
@@ -1416,12 +1418,12 @@ const Editor: React.FC = () => {
             </div>
 
             <p className="text-sm text-[hsl(var(--text-muted))]">
-              将以高质量重编码模式导出 {segments.filter(s => s.status !== 'removed').length} 个片段。
+              {t('editor.dialog.exportHint', { count: segments.filter(s => s.status !== 'removed').length })}
             </p>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowExportDialog(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -1429,7 +1431,7 @@ const Editor: React.FC = () => {
               disabled={!exportPath || processing || !checkExportPathValidity(exportPath, exportMode).valid}
               loading={processing}
             >
-              导出
+              {t('common.export')}
             </Button>
           </DialogFooter>
         </DialogContent>

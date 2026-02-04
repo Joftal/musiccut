@@ -1,6 +1,7 @@
 // 音乐库页面
 
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Music,
   FolderOpen,
@@ -28,6 +29,7 @@ import { formatDuration, formatDate, getErrorMessage } from '@/utils';
 import * as api from '@/services/api';
 
 const Library: React.FC = () => {
+  const { t } = useTranslation();
   const {
     musicList,
     loading,
@@ -70,12 +72,12 @@ const Library: React.FC = () => {
     if (path) {
       // 监听完成事件
       const unlistenComplete = await api.onImportComplete((result) => {
-        let message = `成功导入 ${result.imported} 个音频文件`;
+        let message = t('library.toast.importSuccess', { imported: result.imported });
         if (result.skipped > 0) {
-          message += `，跳过 ${result.skipped} 个已存在的文件`;
+          message += `，${t('library.toast.importSkipped', { skipped: result.skipped })}`;
         }
         if (result.errors > 0) {
-          message += `，${result.errors} 个文件导入失败`;
+          message += `，${t('library.toast.importErrors', { errors: result.errors })}`;
         }
         addToast({
           type: result.imported > 0 ? 'success' : (result.skipped > 0 ? 'warning' : 'error'),
@@ -94,7 +96,7 @@ const Library: React.FC = () => {
         unlistenComplete();
         addToast({
           type: 'error',
-          title: '导入失败',
+          title: t('library.toast.importFailed'),
           description: getErrorMessage(error),
         });
       }
@@ -108,9 +110,9 @@ const Library: React.FC = () => {
     if (paths && paths.length > 0) {
       // 监听完成事件
       const unlistenComplete = await api.onImportComplete((result) => {
-        let message = `成功导入 ${result.imported} 个音频文件`;
+        let message = t('library.toast.importSuccess', { imported: result.imported });
         if (result.skipped > 0) {
-          message += `，跳过 ${result.skipped} 个已存在的文件`;
+          message += `，${t('library.toast.importSkipped', { skipped: result.skipped })}`;
         }
         addToast({
           type: result.imported > 0 ? 'success' : 'warning',
@@ -125,7 +127,7 @@ const Library: React.FC = () => {
         unlistenComplete();
         addToast({
           type: 'error',
-          title: '导入失败',
+          title: t('library.toast.importFailed'),
           description: getErrorMessage(error),
         });
       }
@@ -149,14 +151,14 @@ const Library: React.FC = () => {
       await deleteMusic(deleteTargetId);
       addToast({
         type: 'success',
-        title: '已删除',
+        title: t('library.toast.deleted'),
       });
       setShowDeleteDialog(false);
       setDeleteTargetId(null);
     } catch (error) {
       addToast({
         type: 'error',
-        title: '删除失败',
+        title: t('library.toast.deleteFailed'),
       });
     } finally {
       setDeleting(false);
@@ -168,19 +170,19 @@ const Library: React.FC = () => {
       {/* 头部 */}
       <header className="flex items-center justify-between p-4 border-b border-[hsl(var(--border))]">
         <div>
-          <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">音乐库</h1>
+          <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">{t('library.title')}</h1>
           <p className="text-sm text-[hsl(var(--text-secondary))]">
-            管理音乐指纹库，共 {musicList.length} 首
+            {t('library.subtitle', { count: musicList.length })}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={handleImportFolder}>
             <FolderOpen className="w-4 h-4 mr-2" />
-            导入文件夹
+            {t('library.importFolder')}
           </Button>
           <Button variant="primary" onClick={handleImportFiles}>
             <Plus className="w-4 h-4 mr-2" />
-            导入文件
+            {t('library.importFiles')}
           </Button>
         </div>
       </header>
@@ -189,7 +191,7 @@ const Library: React.FC = () => {
       <div className="p-4 border-b border-[hsl(var(--border))]">
         <div className="flex gap-2">
           <Input
-            placeholder="搜索音乐..."
+            placeholder={t('library.searchPlaceholder')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -197,7 +199,7 @@ const Library: React.FC = () => {
             wrapperClassName="flex-1"
           />
           <Button variant="secondary" onClick={handleSearch}>
-            搜索
+            {t('common.search')}
           </Button>
         </div>
       </div>
@@ -229,17 +231,17 @@ const Library: React.FC = () => {
         ) : musicList.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-[hsl(var(--text-muted))]">
             <Music className="w-16 h-16 mb-4 opacity-50" />
-            <p className="text-lg">音乐库为空</p>
-            <p className="text-sm mt-1">导入音乐以创建指纹库</p>
+            <p className="text-lg">{t('library.emptyTitle')}</p>
+            <p className="text-sm mt-1">{t('library.emptySubtitle')}</p>
           </div>
         ) : (
           <table className="w-full">
             <thead className="bg-[hsl(var(--card-bg))] sticky top-0">
               <tr className="text-left text-sm text-[hsl(var(--text-muted))]">
-                <th className="px-4 py-3 font-medium">#</th>
-                <th className="px-4 py-3 font-medium">标题</th>
-                <th className="px-4 py-3 font-medium">时长</th>
-                <th className="px-4 py-3 font-medium">添加时间</th>
+                <th className="px-4 py-3 font-medium">{t('library.table.index')}</th>
+                <th className="px-4 py-3 font-medium">{t('library.table.title')}</th>
+                <th className="px-4 py-3 font-medium">{t('library.table.duration')}</th>
+                <th className="px-4 py-3 font-medium">{t('library.table.addedTime')}</th>
                 <th className="px-4 py-3 font-medium w-20"></th>
               </tr>
             </thead>
@@ -262,7 +264,7 @@ const Library: React.FC = () => {
                         {!music.file_exists && (
                           <span className="flex items-center gap-1 text-xs text-yellow-500">
                             <AlertTriangle className="w-3 h-3" />
-                            源文件已删除（不影响匹配）
+                            {t('library.sourceDeleted')}
                           </span>
                         )}
                       </div>
@@ -296,29 +298,29 @@ const Library: React.FC = () => {
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除音乐</DialogTitle>
+            <DialogTitle>{t('library.dialog.deleteMusicTitle')}</DialogTitle>
             <DialogClose />
           </DialogHeader>
           <DialogBody>
             <div className="space-y-4">
               <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <p className="text-red-500 font-medium">警告：此操作不可撤销！</p>
+                <p className="text-red-500 font-medium">{t('library.dialog.deleteWarning')}</p>
               </div>
               <p className="text-[hsl(var(--text-secondary))]">
-                确定要删除这首音乐吗？删除后将无法恢复。
+                {t('library.dialog.deleteConfirm')}
               </p>
             </div>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowDeleteDialog(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={confirmDelete}
               loading={deleting}
             >
-              删除
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

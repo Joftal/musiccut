@@ -1,4 +1,8 @@
 <p align="center">
+  <b>简体中文</b> | <a href="./README_EN.md">English</a>
+</p>
+
+<p align="center">
   <img src="https://img.icons8.com/fluency/96/music-video.png" alt="MusicCut Logo" width="96" height="96">
 </p>
 
