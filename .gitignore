@@ -47,5 +47,5 @@ models/audio-separator/
 # Packaged resources
 src-tauri/resources/audio-separator/
 
-# Claude Code local config
-.claude/settings.local.json
+# Claude Code config
+.claude/

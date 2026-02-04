@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(cmd /c \"copy d:\\\\musiccut\\\\ico.png d:\\\\musiccut\\\\src-tauri\\\\icons\\\\icon.png\")",
-      "Bash(npx --prefix \"d:/musiccut\" tsc:*)"
-    ]
-  }
-}
