@@ -123,12 +123,13 @@ jobs:
           Write-Host "audio-separator package ready:"
           Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
 
-      - name: 📥 Download MDX-Net model
+      - name: 📥 Download MDX-Net model and config files
         shell: pwsh
         run: |
           $modelDir = "models\audio-separator\mdx-inst-hq3"
           $modelFile = "UVR-MDX-NET-Inst_HQ_3.onnx"
           $modelUrl = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/$modelFile"
+          $dataUrlPrefix = "https://raw.githubusercontent.com/TRvlvr/application_data/main"
 
           Write-Host "Creating model directory..."
           New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
@@ -136,7 +137,12 @@ jobs:
           Write-Host "Downloading MDX-Net model ($modelFile)..."
           Invoke-WebRequest -Uri $modelUrl -OutFile "$modelDir\$modelFile"
 
-          Write-Host "Model downloaded:"
+          Write-Host "Downloading model config files..."
+          Invoke-WebRequest -Uri "$dataUrlPrefix/mdx_model_data/model_data_new.json" -OutFile "$modelDir\mdx_model_data.json"
+          Invoke-WebRequest -Uri "$dataUrlPrefix/vr_model_data/model_data_new.json" -OutFile "$modelDir\vr_model_data.json"
+          Invoke-WebRequest -Uri "$dataUrlPrefix/filelists/download_checks.json" -OutFile "$modelDir\download_checks.json"
+
+          Write-Host "Model and config files downloaded:"
           Get-ChildItem $modelDir
 
       - name: 🔨 Build Tauri application
