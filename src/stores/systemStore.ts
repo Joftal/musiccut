@@ -50,7 +50,7 @@ export const useSystemStore = create<SystemState>((set, _get) => ({
       });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '检查依赖失败'),
+        error: getErrorMessage(error, 'Failed to check dependencies'),
         loading: false,
       });
     }
@@ -62,7 +62,7 @@ export const useSystemStore = create<SystemState>((set, _get) => ({
       set({ config });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '加载配置失败'),
+        error: getErrorMessage(error, 'Failed to load config'),
       });
     }
   },
@@ -73,7 +73,7 @@ export const useSystemStore = create<SystemState>((set, _get) => ({
       set({ config });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '更新配置失败'),
+        error: getErrorMessage(error, 'Failed to update config'),
       });
       throw error;
     }
@@ -85,7 +85,7 @@ export const useSystemStore = create<SystemState>((set, _get) => ({
       set({ accelerationOptions });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '获取加速选项失败'),
+        error: getErrorMessage(error, 'Failed to get acceleration options'),
       });
     }
   },

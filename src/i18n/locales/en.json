@@ -24,7 +24,30 @@
     "info": "Info",
     "unavailable": "Unavailable",
     "cores": "cores",
-    "threads": "threads"
+    "threads": "threads",
+    "unknownError": "Unknown error",
+    "videoFile": "Video Files",
+    "audioFile": "Audio Files",
+    "selectMatchingMusic": "Select matching music",
+    "selectedSongsCount": "{{count}} songs selected",
+    "downloadModelFirst": "Please download model in Settings first",
+    "processingSpeed": "Processing speed",
+    "separationQuality": "Separation quality",
+    "project": "Project",
+    "cancelled": "Cancelled",
+    "cancellingTask": "Cancelling previous task, please wait",
+    "taskRunning": "A task is already running",
+    "noProjectOpen": "No project is open",
+    "cuttingVideo": "Cutting video...",
+    "exportingVideo": "Exporting video...",
+    "exportingSegments": "Exporting video segments...",
+    "selectFolder": "Select Folder",
+    "selectFile": "Select File",
+    "saveFile": "Save File",
+    "selectDirectory": "Select Directory",
+    "pathTooLong": "Path too long ({{length}}/{{max}} characters), please choose a shorter path or rename the file",
+    "pathTooLongSeparate": "Path too long ({{length}}/{{max}} characters), generated filenames may exceed system limits, please choose a shorter path or rename the file",
+    "fileNameTooLong": "Filename is long ({{length}} characters), export may fail due to path length, consider renaming before import"
   },
   "sidebar": {
     "appSubtitle": "Audio Fingerprint Editor",
@@ -74,7 +97,8 @@
       "sourceNotExistDesc": "The source video file has been deleted or moved and cannot be edited"
     },
     "progress": {
-      "preparing": "Preparing import..."
+      "preparing": "Preparing import...",
+      "processing": "Processing: {{filename}}"
     }
   },
   "library": {

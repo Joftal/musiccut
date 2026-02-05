@@ -149,7 +149,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       set({
         processing: false,
         cancellingProjectId: null,
-        processingMessage: wasCancelled || isCancellingThisProject ? '已取消' : '',
+        processingMessage: wasCancelled || isCancellingThisProject ? i18n.t('common.cancelled') : '',
       });
     } else {
       const states = new Map(get().projectProcessingStates);
@@ -183,10 +183,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
   const canStartProcessing = () => {
     const { processing, cancellingProjectId, currentProject } = get();
     if (cancellingProjectId && cancellingProjectId === currentProject?.id) {
-      throw new Error('正在取消上一个任务，请稍候再试');
+      throw new Error(i18n.t('common.cancellingTask'));
     }
     if (processing) {
-      throw new Error('已有任务正在执行');
+      throw new Error(i18n.t('common.taskRunning'));
     }
     return true;
   };
@@ -607,7 +607,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   cutVideo: async (outputPath: string, keepMatched: boolean) => {
     const { currentProject, segments } = get();
-    if (!currentProject) throw new Error('没有打开的项目');
+    if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
     // 检查是否可以开始新任务
     canStartProcessing();
@@ -617,7 +617,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     // 先保存 segments 到数据库，确保后端使用最新数据
     await api.updateSegments(projectId, segments);
 
-    startProcessingTask(projectId, '剪辑视频中...');
+    startProcessingTask(projectId, i18n.t('common.cuttingVideo'));
 
     let wasCancelled = false;
     try {
@@ -637,7 +637,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   exportVideo: async (outputPath: string) => {
     const { currentProject, segments } = get();
-    if (!currentProject) throw new Error('没有打开的项目');
+    if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
     // 检查是否可以开始新任务
     canStartProcessing();
@@ -647,7 +647,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     // 先保存 segments 到数据库，确保后端使用最新数据
     await api.updateSegments(projectId, segments);
 
-    startProcessingTask(projectId, '导出视频中...');
+    startProcessingTask(projectId, i18n.t('common.exportingVideo'));
 
     let wasCancelled = false;
     try {
@@ -663,7 +663,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   exportVideoSeparately: async (outputDir: string) => {
     const { currentProject, segments } = get();
-    if (!currentProject) throw new Error('没有打开的项目');
+    if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
     // 检查是否可以开始新任务
     canStartProcessing();
@@ -673,7 +673,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     // 先保存 segments 到数据库，确保后端使用最新数据
     await api.updateSegments(projectId, segments);
 
-    startProcessingTask(projectId, '导出视频片段中...');
+    startProcessingTask(projectId, i18n.t('common.exportingSegments'));
 
     let wasCancelled = false;
     try {

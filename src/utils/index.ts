@@ -2,6 +2,7 @@
 
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import i18n from '@/i18n';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -161,7 +162,7 @@ export function generateId(): string {
  * @param fallback 默认错误消息
  * @returns 错误消息字符串
  */
-export function getErrorMessage(error: unknown, fallback: string = '未知错误'): string {
+export function getErrorMessage(error: unknown, fallback: string = 'Unknown error'): string {
   if (error instanceof Error) {
     return error.message;
   }
@@ -200,7 +201,7 @@ export function checkExportPathValidity(
     if (path.length >= MAX_PATH_LENGTH) {
       return {
         valid: false,
-        warning: `名称或路径过长（${path.length}/${MAX_PATH_LENGTH}字符），请选择更短的路径或重命名文件`,
+        warning: i18n.t('common.pathTooLong', { length: path.length, max: MAX_PATH_LENGTH }),
       };
     }
   } else {
@@ -209,7 +210,7 @@ export function checkExportPathValidity(
     if (path.length >= maxAllowedDirLength) {
       return {
         valid: false,
-        warning: `名称或路径过长（${path.length}/${maxAllowedDirLength}字符），生成的文件名可能超出系统限制，请选择更短的路径或重命名文件`,
+        warning: i18n.t('common.pathTooLongSeparate', { length: path.length, max: maxAllowedDirLength }),
       };
     }
   }
@@ -234,7 +235,7 @@ export function checkProjectNameLength(videoPath: string): string | null {
   const PROJECT_NAME_WARNING_THRESHOLD = 50;
 
   if (nameWithoutExt.length > PROJECT_NAME_WARNING_THRESHOLD) {
-    return `文件名较长（${nameWithoutExt.length}字符），导出时可能因路径过长而失败，建议重命名后再导入`;
+    return i18n.t('common.fileNameTooLong', { length: nameWithoutExt.length });
   }
 
   return null;

@@ -68,6 +68,16 @@ const getDisplayFormat = (format: string): string => {
   return format.split(',')[0].toUpperCase();
 };
 
+// 将后端的进度消息转换为国际化消息
+const localizeProgressMessage = (message: string, t: (key: string, options?: Record<string, unknown>) => string): string => {
+  // 匹配 "处理中: filename" 格式
+  const processingMatch = message.match(/^处理中: (.+)$/);
+  if (processingMatch) {
+    return t('projects.progress.processing', { filename: processingMatch[1] });
+  }
+  return message;
+};
+
 const Projects: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -145,7 +155,7 @@ const Projects: React.FC = () => {
 
   const handleSelectVideo = async () => {
     const path = await api.openFileDialog([
-      { name: '视频文件', extensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv'] },
+      { name: t('common.videoFile'), extensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv'] },
     ]);
     if (path) {
       setVideoPath(path);
@@ -373,7 +383,7 @@ const Projects: React.FC = () => {
         <div className="p-4 bg-[hsl(var(--card-bg))] border-b border-[hsl(var(--border))]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-[hsl(var(--text-secondary))]">
-              {importProgress.message}
+              {localizeProgressMessage(importProgress.message, t)}
             </span>
             <span className="text-sm text-[hsl(var(--text-muted))]">
               {importProgress.current} / {importProgress.total}

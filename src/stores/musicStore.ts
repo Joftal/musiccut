@@ -42,7 +42,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       set({ musicList, loading: false });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '加载音乐库失败'),
+        error: getErrorMessage(error, 'Failed to load music library'),
         loading: false,
       });
     }
@@ -62,7 +62,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       return imported.length;
     } catch (error) {
       set({
-        error: getErrorMessage(error, '导入失败'),
+        error: getErrorMessage(error, 'Import failed'),
         importing: false,
         importProgress: null,
       });
@@ -83,7 +83,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '导入失败'),
+        error: getErrorMessage(error, 'Import failed'),
         importing: false,
         importProgress: null,
       });
@@ -101,7 +101,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '删除失败'),
+        error: getErrorMessage(error, 'Delete failed'),
       });
     }
   },
@@ -113,7 +113,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       set({ musicList, loading: false });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '搜索失败'),
+        error: getErrorMessage(error, 'Search failed'),
         loading: false,
       });
     }

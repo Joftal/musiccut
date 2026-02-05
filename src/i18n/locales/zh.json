@@ -24,7 +24,30 @@
     "info": "信息",
     "unavailable": "不可用",
     "cores": "核心",
-    "threads": "线程"
+    "threads": "线程",
+    "unknownError": "未知错误",
+    "videoFile": "视频文件",
+    "audioFile": "音频文件",
+    "selectMatchingMusic": "选择匹配音乐",
+    "selectedSongsCount": "已选择 {{count}} 首音乐",
+    "downloadModelFirst": "请先在设置页下载模型",
+    "processingSpeed": "处理速度",
+    "separationQuality": "分离质量",
+    "project": "项目",
+    "cancelled": "已取消",
+    "cancellingTask": "正在取消上一个任务，请稍候再试",
+    "taskRunning": "已有任务正在执行",
+    "noProjectOpen": "没有打开的项目",
+    "cuttingVideo": "剪辑视频中...",
+    "exportingVideo": "导出视频中...",
+    "exportingSegments": "导出视频片段中...",
+    "selectFolder": "选择文件夹",
+    "selectFile": "选择文件",
+    "saveFile": "保存文件",
+    "selectDirectory": "选择目录",
+    "pathTooLong": "名称或路径过长（{{length}}/{{max}}字符），请选择更短的路径或重命名文件",
+    "pathTooLongSeparate": "名称或路径过长（{{length}}/{{max}}字符），生成的文件名可能超出系统限制，请选择更短的路径或重命名文件",
+    "fileNameTooLong": "文件名较长（{{length}}字符），导出时可能因路径过长而失败，建议重命名后再导入"
   },
   "sidebar": {
     "appSubtitle": "音频指纹剪辑",
@@ -74,7 +97,8 @@
       "sourceNotExistDesc": "该项目的源视频文件已被删除或移动，无法进行编辑"
     },
     "progress": {
-      "preparing": "准备导入..."
+      "preparing": "准备导入...",
+      "processing": "处理中: {{filename}}"
     }
   },
   "library": {
