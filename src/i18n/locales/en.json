@@ -314,7 +314,8 @@
     "deletedCount": "{{count}} deleted",
     "searchPlaceholder": "Search music...",
     "emptyLibrary": "Library is empty",
-    "importFirst": "Please import music in the Library page first"
+    "importFirst": "Please import music in the Library page first",
+    "sourceDeleted": "Source file deleted"
   },
   "stage": {
     "idle": "Idle",

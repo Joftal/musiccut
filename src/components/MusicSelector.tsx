@@ -166,6 +166,7 @@ export const MusicSelector: React.FC<MusicSelectorProps> = ({
                     selected={localSelectedIds.includes(music.id)}
                     onToggle={() => toggleMusic(music.id)}
                     formatDuration={formatDuration}
+                    sourceDeletedLabel={t('musicSelector.sourceDeleted')}
                   />
                 ))}
               </div>
@@ -197,6 +198,7 @@ interface MusicItemProps {
   selected: boolean;
   onToggle: () => void;
   formatDuration: (seconds: number) => string;
+  sourceDeletedLabel: string;
 }
 
 const MusicItem: React.FC<MusicItemProps> = ({
@@ -204,6 +206,7 @@ const MusicItem: React.FC<MusicItemProps> = ({
   selected,
   onToggle,
   formatDuration,
+  sourceDeletedLabel,
 }) => {
   return (
     <div
@@ -252,7 +255,7 @@ const MusicItem: React.FC<MusicItemProps> = ({
       {!music.file_exists && (
         <div
           className="text-xs text-yellow-500 flex-shrink-0"
-          title="Source file deleted"
+          title={sourceDeletedLabel}
         >
           <AlertTriangle className="w-4 h-4" />
         </div>

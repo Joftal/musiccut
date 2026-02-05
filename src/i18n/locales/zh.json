@@ -314,7 +314,8 @@
     "deletedCount": "{{count}} 首已删除",
     "searchPlaceholder": "搜索音乐...",
     "emptyLibrary": "音乐库为空",
-    "importFirst": "请先在音乐库页面导入音乐"
+    "importFirst": "请先在音乐库页面导入音乐",
+    "sourceDeleted": "源文件已删除"
   },
   "stage": {
     "idle": "空闲",
