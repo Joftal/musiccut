@@ -161,7 +161,7 @@ export function generateId(): string {
  * @param fallback 默认错误消息
  * @returns 错误消息字符串
  */
-export function getErrorMessage(error: unknown, fallback: string = '未知错误'): string {
+export function getErrorMessage(error: unknown, fallback: string = 'Unknown error'): string {
   if (error instanceof Error) {
     return error.message;
   }

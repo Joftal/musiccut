@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/tauri';
 import { open, save } from '@tauri-apps/api/dialog';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { exists } from '@tauri-apps/api/fs';
+import i18n from '@/i18n';
 import type {
   MusicInfo,
   VideoInfo,
@@ -320,7 +321,7 @@ export async function openFolderDialog(): Promise<string | null> {
   const result = await open({
     directory: true,
     multiple: false,
-    title: '选择文件夹',
+    title: i18n.t('common.selectFolder'),
   });
   return result as string | null;
 }
@@ -331,7 +332,7 @@ export async function openFileDialog(
   const result = await open({
     multiple: false,
     filters,
-    title: '选择文件',
+    title: i18n.t('common.selectFile'),
   });
   return result as string | null;
 }
@@ -342,7 +343,7 @@ export async function openFilesDialog(
   const result = await open({
     multiple: true,
     filters,
-    title: '选择文件',
+    title: i18n.t('common.selectFile'),
   });
   return result as string[] | null;
 }
@@ -354,7 +355,7 @@ export async function saveFileDialog(
   const result = await save({
     defaultPath,
     filters,
-    title: '保存文件',
+    title: i18n.t('common.saveFile'),
   });
   return result;
 }
@@ -362,7 +363,7 @@ export async function saveFileDialog(
 export async function openDirectoryDialog(): Promise<string | null> {
   const result = await open({
     directory: true,
-    title: '选择目录',
+    title: i18n.t('common.selectDirectory'),
   });
   return result as string | null;
 }

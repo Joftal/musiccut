@@ -507,7 +507,7 @@ const Settings: React.FC = () => {
                               {model.id === 'mdx-inst-hq3' ? t('model.mdxInstHq3.description') : model.description}
                             </p>
                             <div className="flex items-center gap-4 mt-2">
-                              <div className="flex items-center gap-1" title="处理速度">
+                              <div className="flex items-center gap-1" title={t('common.processingSpeed')}>
                                 <Zap className="w-3 h-3 text-yellow-500" />
                                 <div className="flex gap-0.5">
                                   {Array.from({ length: 5 }).map((_, i) => (
@@ -521,7 +521,7 @@ const Settings: React.FC = () => {
                                   ))}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1" title="分离质量">
+                              <div className="flex items-center gap-1" title={t('common.separationQuality')}>
                                 <Star className="w-3 h-3 text-blue-500" />
                                 <div className="flex gap-0.5">
                                   {Array.from({ length: 5 }).map((_, i) => (

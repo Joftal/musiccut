@@ -73,7 +73,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (error) {
       console.error('Failed to load projects:', error);
       set({
-        error: getErrorMessage(error, '加载项目失败'),
+        error: getErrorMessage(error, 'Failed to load projects'),
         loading: false,
         projects: [],
       });
@@ -97,7 +97,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       get().removeProjectStatus(id);
     } catch (error) {
       set({
-        error: getErrorMessage(error, '删除项目失败'),
+        error: getErrorMessage(error, 'Failed to delete project'),
       });
       throw error;
     }

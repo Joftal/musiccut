@@ -491,7 +491,7 @@ const Editor: React.FC = () => {
 
     // 直接打开文件选择对话框
     const savePath = await api.saveFileDialog(defaultPath, [
-      { name: '视频文件', extensions: ['mp4'] },
+      { name: t('common.videoFile'), extensions: ['mp4'] },
     ]);
     if (!savePath) return;
 
@@ -679,7 +679,7 @@ const Editor: React.FC = () => {
       // 合并导出模式
       if (!finalPath) {
         const path = await api.saveFileDialog(undefined, [
-          { name: '视频文件', extensions: ['mp4'] },
+          { name: t('common.videoFile'), extensions: ['mp4'] },
         ]);
         if (!path) return;
         setExportPath(path);
@@ -689,7 +689,7 @@ const Editor: React.FC = () => {
       // 先关闭弹窗，导出任务在后台继续执行
       setShowExportDialog(false);
 
-      const projectName = currentProject?.name || '项目';
+      const projectName = currentProject?.name || t('common.project');
 
       try {
         await exportVideo(finalPath);
@@ -817,7 +817,7 @@ const Editor: React.FC = () => {
             variant={useCustomMusicLibrary ? 'primary' : 'secondary'}
             onClick={() => setShowMusicSelector(true)}
             disabled={processing}
-            title={useCustomMusicLibrary ? `已选择 ${selectedMusicIds.length} 首音乐` : '选择匹配音乐'}
+            title={useCustomMusicLibrary ? t('common.selectedSongsCount', { count: selectedMusicIds.length }) : t('common.selectMatchingMusic')}
           >
             <Library className="w-4 h-4 mr-2" />
             {useCustomMusicLibrary ? t('editor.songsSelected', { count: selectedMusicIds.length }) : t('editor.allMusic')}
@@ -827,7 +827,7 @@ const Editor: React.FC = () => {
             variant="primary"
             onClick={handleStartProcessing}
             disabled={processing || !hasDownloadedModels()}
-            title={!hasDownloadedModels() ? '请先在设置页下载模型' : ''}
+            title={!hasDownloadedModels() ? t('common.downloadModelFirst') : ''}
           >
             {processing ? (
               <>
@@ -1396,7 +1396,7 @@ const Editor: React.FC = () => {
                   onClick={async () => {
                     if (exportMode === 'merged') {
                       const path = await api.saveFileDialog(undefined, [
-                        { name: '视频文件', extensions: ['mp4'] },
+                        { name: t('common.videoFile'), extensions: ['mp4'] },
                       ]);
                       if (path) setExportPath(path);
                     } else {

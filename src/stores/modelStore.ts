@@ -48,7 +48,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       set({ models });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '加载模型列表失败'),
+        error: getErrorMessage(error, 'Failed to load models'),
       });
     }
   },
@@ -59,7 +59,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       set({ modelStatuses });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '加载模型状态失败'),
+        error: getErrorMessage(error, 'Failed to load model status'),
       });
     }
   },
@@ -74,7 +74,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       set({ models, modelStatuses, loading: false });
     } catch (error) {
       set({
-        error: getErrorMessage(error, '加载模型信息失败'),
+        error: getErrorMessage(error, 'Failed to load model info'),
         loading: false,
       });
     }
@@ -103,7 +103,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       // 清理下载状态
       get().setDownloadError(modelId);
       set({
-        error: getErrorMessage(error, '下载模型失败'),
+        error: getErrorMessage(error, 'Failed to download model'),
       });
     }
   },

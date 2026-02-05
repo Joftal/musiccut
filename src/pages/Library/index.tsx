@@ -115,7 +115,7 @@ const Library: React.FC = () => {
 
   const handleImportFiles = async () => {
     const paths = await api.openFilesDialog([
-      { name: '音频文件', extensions: ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg'] },
+      { name: t('common.audioFile'), extensions: ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg'] },
     ]);
     if (paths && paths.length > 0) {
       // 监听完成事件
