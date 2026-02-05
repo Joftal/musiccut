@@ -177,76 +177,82 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $outputDir = "dist\MusicCut-FFmpeg"
+          $outputDir = "dist/MusicCut-FFmpeg"
           $archiveName = "MusicCut_${version}_x64_FFmpeg.7z"
+          $outputFolder = Split-Path -Leaf $outputDir
 
           Write-Host "Creating FFmpeg package..."
 
           # Create output directory
-          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          New-Item -ItemType Directory -Path "$outputDir" -Force | Out-Null
 
           # Copy main exe
-          Copy-Item "src-tauri\target\release\MusicCut.exe" $outputDir
+          Copy-Item "src-tauri/target/release/MusicCut.exe" "$outputDir"
 
           # Copy WebView2Loader.dll if exists
-          if (Test-Path "src-tauri\target\release\WebView2Loader.dll") {
-            Copy-Item "src-tauri\target\release\WebView2Loader.dll" $outputDir
+          if (Test-Path "src-tauri/target/release/WebView2Loader.dll") {
+            Copy-Item "src-tauri/target/release/WebView2Loader.dll" "$outputDir"
           }
 
           # Copy FFmpeg
-          Copy-Item -Recurse "ffmpeg" "$outputDir\ffmpeg"
+          Copy-Item -Recurse "ffmpeg" "$outputDir/ffmpeg"
 
           # Copy models if exist
           if (Test-Path "models") {
-            Copy-Item -Recurse "models" "$outputDir\models"
+            Copy-Item -Recurse "models" "$outputDir/models"
           }
 
           # Copy audio-separator
-          if (Test-Path "src-tauri\resources\audio-separator") {
-            Copy-Item -Recurse "src-tauri\resources\audio-separator" "$outputDir\audio-separator"
+          if (Test-Path "src-tauri/resources/audio-separator") {
+            Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
           }
 
-          # Create 7z archive
-          7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
+          # Create 7z archive (avoid nesting dist/ in the archive)
+          Push-Location "dist"
+          7z a -t7z -mx=9 "$archiveName" "$outputFolder"
+          Pop-Location
 
-          Write-Host "FFmpeg package created: dist\$archiveName"
-          Get-ChildItem "dist\*.7z"
+          Write-Host "FFmpeg package created: dist/$archiveName"
+          Get-ChildItem "dist/*.7z"
 
       - name: Create NoFFmpeg Package
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $outputDir = "dist\MusicCut-NoFFmpeg"
+          $outputDir = "dist/MusicCut-NoFFmpeg"
           $archiveName = "MusicCut_${version}_x64_NoFFmpeg.7z"
+          $outputFolder = Split-Path -Leaf $outputDir
 
           Write-Host "Creating NoFFmpeg package..."
 
           # Create output directory
-          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          New-Item -ItemType Directory -Path "$outputDir" -Force | Out-Null
 
           # Copy main exe
-          Copy-Item "src-tauri\target\release\MusicCut.exe" $outputDir
+          Copy-Item "src-tauri/target/release/MusicCut.exe" "$outputDir"
 
           # Copy WebView2Loader.dll if exists
-          if (Test-Path "src-tauri\target\release\WebView2Loader.dll") {
-            Copy-Item "src-tauri\target\release\WebView2Loader.dll" $outputDir
+          if (Test-Path "src-tauri/target/release/WebView2Loader.dll") {
+            Copy-Item "src-tauri/target/release/WebView2Loader.dll" "$outputDir"
           }
 
           # Copy models if exist
           if (Test-Path "models") {
-            Copy-Item -Recurse "models" "$outputDir\models"
+            Copy-Item -Recurse "models" "$outputDir/models"
           }
 
           # Copy audio-separator
-          if (Test-Path "src-tauri\resources\audio-separator") {
-            Copy-Item -Recurse "src-tauri\resources\audio-separator" "$outputDir\audio-separator"
+          if (Test-Path "src-tauri/resources/audio-separator") {
+            Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
           }
 
-          # Create 7z archive
-          7z a -t7z -mx=9 "dist\$archiveName" "$outputDir\*"
+          # Create 7z archive (avoid nesting dist/ in the archive)
+          Push-Location "dist"
+          7z a -t7z -mx=9 "$archiveName" "$outputFolder"
+          Pop-Location
 
-          Write-Host "NoFFmpeg package created: dist\$archiveName"
-          Get-ChildItem "dist\*.7z"
+          Write-Host "NoFFmpeg package created: dist/$archiveName"
+          Get-ChildItem "dist/*.7z"
 
       - name: List artifacts
         shell: pwsh
