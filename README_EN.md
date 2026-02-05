@@ -30,6 +30,14 @@
 
 ---
 
+## 📸 Application Screenshot
+
+<p align="center">
+  <img width="1404" height="864" alt="xiezuo20260205-144740" src="https://github.com/user-attachments/assets/59e184f3-b7af-49b8-83cf-ce57294ff871" />
+</p>
+
+---
+
 ## ✨ Features
 
 | Feature | Description |
