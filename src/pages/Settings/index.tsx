@@ -504,7 +504,7 @@ const Settings: React.FC = () => {
                               )}
                             </div>
                             <p className="text-sm text-[hsl(var(--text-muted))] mt-1">
-                              {model.description}
+                              {model.id === 'mdx-inst-hq3' ? t('model.mdxInstHq3.description') : model.description}
                             </p>
                             <div className="flex items-center gap-4 mt-2">
                               <div className="flex items-center gap-1" title="处理速度">

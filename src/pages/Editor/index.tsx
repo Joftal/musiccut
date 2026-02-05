@@ -1145,7 +1145,7 @@ const Editor: React.FC = () => {
                       : playbackPosition;
                     setCustomClipRange(newStart, customClipEnd);
                   }}
-                  title="标记当前播放位置为开始时间"
+                  title={t('editor.timeline.markStartTime')}
                   className="h-7 px-2"
                 >
                   <Pointer className="w-4 h-4" />
@@ -1169,7 +1169,7 @@ const Editor: React.FC = () => {
                       : playbackPosition;
                     setCustomClipRange(customClipStart, newEnd);
                   }}
-                  title="标记当前播放位置为结束时间"
+                  title={t('editor.timeline.markEndTime')}
                   className="h-7 px-2"
                 >
                   <Pointer className="w-4 h-4" />

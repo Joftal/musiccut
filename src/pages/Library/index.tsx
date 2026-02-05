@@ -28,6 +28,16 @@ import { useToast } from '@/components/ui/Toast';
 import { formatDuration, formatDate, getErrorMessage } from '@/utils';
 import * as api from '@/services/api';
 
+// 将后端的进度消息转换为国际化消息
+const localizeProgressMessage = (message: string, t: (key: string, options?: Record<string, unknown>) => string): string => {
+  // 匹配 "处理中: filename" 格式
+  const processingMatch = message.match(/^处理中: (.+)$/);
+  if (processingMatch) {
+    return t('library.progress.processing', { filename: processingMatch[1] });
+  }
+  return message;
+};
+
 const Library: React.FC = () => {
   const { t } = useTranslation();
   const {
@@ -209,7 +219,7 @@ const Library: React.FC = () => {
         <div className="p-4 bg-[hsl(var(--card-bg))] border-b border-[hsl(var(--border))]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-[hsl(var(--text-secondary))]">
-              {importProgress.message}
+              {localizeProgressMessage(importProgress.message, t)}
             </span>
             <span className="text-sm text-[hsl(var(--text-muted))]">
               {importProgress.current} / {importProgress.total}

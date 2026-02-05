@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import type { Project, Segment, SegmentStatus } from '@/types';
 import * as api from '@/services/api';
 import { useProjectStore } from './projectStore';
+import i18n from '@/i18n';
 
 // 每个项目独立的处理状态（包含中间文件路径和处理进度）
 interface ProjectProcessingState {
@@ -461,13 +462,13 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
     // 设置当前项目的处理状态（如果是当前项目）
     if (get().currentProject?.id === projectId) {
-      set({ processing: true, processingMessage: '提取音频中...' });
+      set({ processing: true, processingMessage: i18n.t('editor.progress.extractingAudio') });
     } else {
       // 更新缓存中的处理状态
       const states = new Map(get().projectProcessingStates);
       const state = states.get(projectId) || createDefaultProcessingState();
       state.processing = true;
-      state.processingMessage = '提取音频中...';
+      state.processingMessage = i18n.t('editor.progress.extractingAudio');
       states.set(projectId, state);
       set({ projectProcessingStates: states });
     }
@@ -503,12 +504,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
     // 设置处理状态
     if (get().currentProject?.id === projectId) {
-      set({ processing: true, processingMessage: '人声分离中...' });
+      set({ processing: true, processingMessage: i18n.t('editor.progress.separatingVocals') });
     } else {
       const states = new Map(get().projectProcessingStates);
       const state = states.get(projectId) || createDefaultProcessingState();
       state.processing = true;
-      state.processingMessage = '人声分离中...';
+      state.processingMessage = i18n.t('editor.progress.separatingVocals');
       states.set(projectId, state);
       set({ projectProcessingStates: states });
     }
@@ -559,12 +560,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
     // 设置处理状态
     if (get().currentProject?.id === projectId) {
-      set({ processing: true, processingMessage: '匹配音频片段中...' });
+      set({ processing: true, processingMessage: i18n.t('editor.progress.matchingSegments') });
     } else {
       const states = new Map(get().projectProcessingStates);
       const state = states.get(projectId) || createDefaultProcessingState();
       state.processing = true;
-      state.processingMessage = '匹配音频片段中...';
+      state.processingMessage = i18n.t('editor.progress.matchingSegments');
       states.set(projectId, state);
       set({ projectProcessingStates: states });
     }

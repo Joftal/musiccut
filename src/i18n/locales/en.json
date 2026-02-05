@@ -92,6 +92,9 @@
       "addedTime": "Added"
     },
     "sourceDeleted": "Source file deleted (matching still works)",
+    "progress": {
+      "processing": "Processing: {{filename}}"
+    },
     "dialog": {
       "deleteMusicTitle": "Delete Music",
       "deleteWarning": "Warning: This action cannot be undone!",
@@ -127,7 +130,9 @@
       "customClip": "Custom Clip",
       "start": "Start",
       "end": "End",
-      "duration": "Duration"
+      "duration": "Duration",
+      "markStartTime": "Mark current playback position as start time",
+      "markEndTime": "Mark current playback position as end time"
     },
     "dialog": {
       "exportTitle": "Export Video",
@@ -173,7 +178,15 @@
     },
     "progress": {
       "generatingPreview": "Generating preview video (format not supported for direct playback)...",
-      "exportingCustomClip": "Exporting custom clip..."
+      "exportingCustomClip": "Exporting custom clip...",
+      "extractingAudio": "Extracting audio...",
+      "separatingVocals": "Separating vocals...",
+      "matchingSegments": "Matching audio segments..."
+    }
+  },
+  "model": {
+    "mdxInstHq3": {
+      "description": "Fast and high quality, suitable for most scenarios"
     }
   },
   "settings": {

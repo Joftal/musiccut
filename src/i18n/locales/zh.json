@@ -92,6 +92,9 @@
       "addedTime": "添加时间"
     },
     "sourceDeleted": "源文件已删除（不影响匹配）",
+    "progress": {
+      "processing": "处理中: {{filename}}"
+    },
     "dialog": {
       "deleteMusicTitle": "删除音乐",
       "deleteWarning": "警告：此操作不可撤销！",
@@ -127,7 +130,9 @@
       "customClip": "自定义剪辑",
       "start": "开始",
       "end": "结束",
-      "duration": "时长"
+      "duration": "时长",
+      "markStartTime": "标记当前播放位置为开始时间",
+      "markEndTime": "标记当前播放位置为结束时间"
     },
     "dialog": {
       "exportTitle": "导出视频",
@@ -173,7 +178,15 @@
     },
     "progress": {
       "generatingPreview": "正在生成预览视频（视频格式不支持直接播放）...",
-      "exportingCustomClip": "导出自定义剪辑中..."
+      "exportingCustomClip": "导出自定义剪辑中...",
+      "extractingAudio": "提取音频中...",
+      "separatingVocals": "人声分离中...",
+      "matchingSegments": "匹配音频片段中..."
+    }
+  },
+  "model": {
+    "mdxInstHq3": {
+      "description": "快速高质量，适合大多数场景"
     }
   },
   "settings": {
