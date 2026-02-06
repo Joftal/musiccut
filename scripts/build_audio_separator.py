@@ -2,7 +2,7 @@
 """
 audio-separator PyInstaller build script
 Creates a standalone executable with ONNX Runtime GPU support
-Only supports MDX-Net ONNX models, no PyTorch required
+Includes PyTorch CPU for audio-separator compatibility
 """
 
 import os
@@ -29,17 +29,20 @@ block_cipher = None
 datas = []
 datas += collect_data_files('audio_separator')
 datas += collect_data_files('onnxruntime')
+datas += collect_data_files('torch')
 
-# Collect all submodules (ONNX only, no PyTorch)
+# Collect all submodules
 hiddenimports = []
 hiddenimports += collect_submodules('audio_separator')
 hiddenimports += collect_submodules('onnxruntime')
+hiddenimports += collect_submodules('torch')
 hiddenimports += [
     'numpy',
     'scipy',
     'librosa',
     'soundfile',
     'pydub',
+    'torch',
 ]
 
 a = Analysis(
@@ -57,7 +60,6 @@ a = Analysis(
         'PIL',
         'IPython',
         'jupyter',
-        'torch',
         'torchvision',
         'torchaudio',
     ],
@@ -103,9 +105,26 @@ coll = COLLECT(
 ENTRY_SCRIPT = '''#!/usr/bin/env python3
 """audio-separator entry point"""
 import sys
-from audio_separator.separator import main
+
+def check_gpu():
+    """Check ONNX Runtime GPU availability and print result."""
+    try:
+        import onnxruntime as ort
+        providers = ort.get_available_providers()
+        has_gpu = (
+            'CUDAExecutionProvider' in providers
+            or 'TensorrtExecutionProvider' in providers
+            or 'DmlExecutionProvider' in providers
+        )
+        print('onnx_gpu_ok' if has_gpu else 'onnx_gpu_no')
+    except Exception:
+        print('onnx_gpu_no')
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == '--check-gpu':
+        check_gpu()
+        sys.exit(0)
+    from audio_separator.separator import main
     sys.exit(main())
 '''
 
@@ -142,8 +161,13 @@ def get_python():
 
 
 def install_dependencies():
-    """Install dependencies (ONNX Runtime only, no PyTorch)"""
+    """Install dependencies (ONNX Runtime + PyTorch CPU)"""
     pip = str(get_pip())
+
+    print("Installing PyTorch (CPU only, required by audio-separator)...")
+    if not run_command([pip, "install", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+        print("Warning: PyTorch CPU install failed")
+        return False
 
     print("Installing ONNX Runtime GPU...")
     if not run_command([pip, "install", "onnxruntime-gpu"]):

@@ -923,6 +923,20 @@ pub fn preload_gpu_capabilities() {
 
 /// 检测 ONNX Runtime GPU 是否可用
 fn check_onnx_gpu() -> bool {
+    // 优先使用打包的 audio-separator 检测 GPU（生产环境）
+    let separator_path = separator::resolve_separator_path();
+    let output = hidden_command(&separator_path)
+        .args(["--check-gpu"])
+        .output();
+
+    if let Ok(output) = &output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return stdout.lines().any(|line| line.trim() == "onnx_gpu_ok");
+        }
+    }
+
+    // 回退到系统 Python 检测（开发模式）
     let output = hidden_command("python")
         .args([
             "-c",

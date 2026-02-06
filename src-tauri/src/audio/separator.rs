@@ -421,7 +421,7 @@ fn parse_progress(line: &str) -> Option<f32> {
 
 /// 解析 audio-separator 路径
 /// 优先使用打包版本，否则使用系统 PATH 中的版本
-fn resolve_separator_path() -> String {
+pub fn resolve_separator_path() -> String {
     use crate::utils::get_exe_dir;
 
     if let Some(exe_dir) = get_exe_dir() {
