@@ -188,11 +188,11 @@ jobs:
           Write-Host "Installing PyTorch (CPU only, required by audio-separator)..."
           .\tools\venv\Scripts\pip.exe install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-          Write-Host "Installing ONNX Runtime GPU..."
-          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
-
           Write-Host "Installing audio-separator and PyInstaller..."
           .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller onnx
+
+          Write-Host "Installing ONNX Runtime GPU (override CPU version from audio-separator)..."
+          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
 
           Write-Host "Building audio-separator executable..."
           .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py

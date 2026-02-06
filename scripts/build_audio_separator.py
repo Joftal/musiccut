@@ -199,15 +199,15 @@ def install_dependencies():
         print("Warning: PyTorch CPU install failed")
         return False
 
-    print("Installing ONNX Runtime GPU...")
+    print("Installing audio-separator...")
+    if not run_command([pip, "install", "audio-separator", "onnx"]):
+        return False
+
+    print("Installing ONNX Runtime GPU (override CPU version)...")
     if not run_command([pip, "install", "onnxruntime-gpu"]):
         print("Warning: ONNX Runtime GPU install failed, trying CPU version...")
         if not run_command([pip, "install", "onnxruntime"]):
             return False
-
-    print("Installing audio-separator...")
-    if not run_command([pip, "install", "audio-separator", "onnx"]):
-        return False
 
     print("Installing PyInstaller...")
     if not run_command([pip, "install", "pyinstaller"]):
