@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - dev
   workflow_dispatch:
     inputs:
       version:
@@ -36,7 +38,7 @@ jobs:
         id: check_release
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             # tag 推送：检查 tag 所在 commit 是否在 main 分支上
             TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref }})
             if git branch -r --contains "$TAG_COMMIT" | grep -q 'origin/main'; then
@@ -46,19 +48,26 @@ jobs:
               echo "should_release=false" >> $GITHUB_OUTPUT
               echo "Tag is NOT on main branch, skipping release"
             fi
-          else
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # 手动触发：使用用户选择
             echo "should_release=${{ github.event.inputs.create_release }}" >> $GITHUB_OUTPUT
+          else
+            # dev 分支 push：不发布 release
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "Branch push, skipping release"
           fi
 
       - name: Get version
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
-          else
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION=${{ github.event.inputs.version || '1.0.0' }}
+          else
+            # dev 分支 push：使用 commit SHA 短哈希作为版本标识
+            VERSION="dev-${GITHUB_SHA::7}"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
@@ -68,12 +77,12 @@ jobs:
         shell: bash
         run: |
           # 找到最近的 tag（不含当前 tag）
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             # tag 推送：找上一个 tag
             CURRENT_TAG=${GITHUB_REF#refs/tags/}
             PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
           else
-            # 手动触发：找最近的 tag
+            # 手动触发或分支 push：找最近的 tag
             PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           fi
 
