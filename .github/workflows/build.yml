@@ -29,7 +29,7 @@ env:
   TORCHVISION_VERSION: '0.25.0'
   PILLOW_VERSION: '12.1.0'
   AUDIO_SEPARATOR_VERSION: '0.41.1'
-  ONNXRUNTIME_GPU_VERSION: '1.24.1'
+  ONNXRUNTIME_DML_VERSION: '1.24.1'
   ONNX_VERSION: '1.20.1'
   PYINSTALLER_VERSION: '6.18.0'
   FPCALC_VERSION: '1.6.0'
@@ -206,8 +206,8 @@ jobs:
           Write-Host "Installing audio-separator and PyInstaller..."
           .\tools\venv\Scripts\pip.exe install audio-separator==${{ env.AUDIO_SEPARATOR_VERSION }} pyinstaller==${{ env.PYINSTALLER_VERSION }} onnx==${{ env.ONNX_VERSION }}
 
-          Write-Host "Installing ONNX Runtime GPU (override CPU version from audio-separator)..."
-          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu==${{ env.ONNXRUNTIME_GPU_VERSION }}
+          Write-Host "Installing ONNX Runtime DirectML (override CPU version from audio-separator)..."
+          .\tools\venv\Scripts\pip.exe install onnxruntime-directml==${{ env.ONNXRUNTIME_DML_VERSION }}
 
           Write-Host "Building audio-separator executable..."
           .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py

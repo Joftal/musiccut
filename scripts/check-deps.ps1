@@ -253,10 +253,10 @@ try {
 Write-Host "Checking ONNX Runtime GPU..." -NoNewline
 if (Test-Path $venvPython) {
     try {
-        $onnxGpuOk = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null
+        $onnxGpuOk = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'DmlExecutionProvider' in providers or 'CUDAExecutionProvider' in providers else 'no')" 2>$null
         if ($onnxGpuOk -eq "yes") {
             Write-Success " OK"
-            Add-Result -Name "ONNX GPU" -Status "OK" -Version "-" -Path "-" -Note "CUDA ready"
+            Add-Result -Name "ONNX GPU" -Status "OK" -Version "-" -Path "-" -Note "DirectML/CUDA ready"
         } else { throw "not available" }
     } catch {
         Write-Info " Not available"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 audio-separator PyInstaller build script
-Creates a standalone executable with ONNX Runtime GPU support
+Creates a standalone executable with ONNX Runtime DirectML GPU support
 Includes PyTorch CPU for audio-separator compatibility
 """
 
@@ -24,7 +24,7 @@ TORCH_VERSION = "2.10.0"
 TORCHVISION_VERSION = "0.25.0"
 PILLOW_VERSION = "12.1.0"
 AUDIO_SEPARATOR_VERSION = "0.41.1"
-ONNXRUNTIME_GPU_VERSION = "1.24.1"
+ONNXRUNTIME_DML_VERSION = "1.24.1"
 ONNX_VERSION = "1.20.1"
 PYINSTALLER_VERSION = "6.18.0"
 
@@ -136,33 +136,6 @@ coll = COLLECT(
 )
 '''
 
-# Entry point script
-ENTRY_SCRIPT = '''#!/usr/bin/env python3
-"""audio-separator entry point"""
-import sys
-
-def check_gpu():
-    """Check ONNX Runtime GPU availability and print result."""
-    try:
-        import onnxruntime as ort
-        providers = ort.get_available_providers()
-        has_gpu = (
-            'CUDAExecutionProvider' in providers
-            or 'TensorrtExecutionProvider' in providers
-            or 'DmlExecutionProvider' in providers
-        )
-        print('onnx_gpu_ok' if has_gpu else 'onnx_gpu_no')
-    except Exception:
-        print('onnx_gpu_no')
-
-if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == '--check-gpu':
-        check_gpu()
-        sys.exit(0)
-    from audio_separator.utils.cli import main
-    sys.exit(main())
-'''
-
 
 def run_command(cmd, cwd=None, check=True):
     """Run command and print output"""
@@ -213,9 +186,9 @@ def install_dependencies():
     if not run_command([pip, "install", f"audio-separator=={AUDIO_SEPARATOR_VERSION}", f"onnx=={ONNX_VERSION}"]):
         return False
 
-    print(f"Installing ONNX Runtime GPU=={ONNXRUNTIME_GPU_VERSION} (override CPU version)...")
-    if not run_command([pip, "install", f"onnxruntime-gpu=={ONNXRUNTIME_GPU_VERSION}"]):
-        print("Warning: ONNX Runtime GPU install failed, trying CPU version...")
+    print(f"Installing ONNX Runtime DirectML=={ONNXRUNTIME_DML_VERSION} (override CPU version)...")
+    if not run_command([pip, "install", f"onnxruntime-directml=={ONNXRUNTIME_DML_VERSION}"]):
+        print("Warning: ONNX Runtime DirectML install failed, trying CPU version...")
         if not run_command([pip, "install", "onnxruntime"]):
             return False
 
@@ -235,10 +208,11 @@ def create_spec_file():
 
 
 def create_entry_script():
-    """Create entry point script"""
+    """Verify entry point script exists"""
     entry_path = SCRIPT_DIR / "audio_separator_entry.py"
-    print(f"Creating entry script: {entry_path}")
-    entry_path.write_text(ENTRY_SCRIPT, encoding="utf-8")
+    if not entry_path.exists():
+        raise FileNotFoundError(f"Entry script not found: {entry_path}")
+    print(f"Using entry script: {entry_path}")
     return entry_path
 
 

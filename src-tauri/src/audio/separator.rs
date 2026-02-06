@@ -121,10 +121,10 @@ pub fn separate_vocals(
         .stderr(Stdio::piped());
 
     // 如果强制 CPU 模式，设置环境变量禁用 GPU
-    // 注意：CUDA_VISIBLE_DEVICES="-1" 才能真正禁用 GPU，空字符串无效
     if !use_gpu {
         cmd.env("CUDA_VISIBLE_DEVICES", "-1");
-        info!("已设置 CUDA_VISIBLE_DEVICES=\"-1\" 禁用 GPU");
+        cmd.env("MUSICCUT_FORCE_CPU", "1");
+        info!("已设置 CUDA_VISIBLE_DEVICES=\"-1\" 和 MUSICCUT_FORCE_CPU=\"1\" 禁用 GPU");
     }
 
     let child = cmd.spawn()

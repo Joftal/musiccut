@@ -21,7 +21,7 @@ $FFmpegDir = Join-Path $ProjectRoot "ffmpeg"  # 内置工具目录
 # ── Pinned dependency versions ──
 # Keep in sync with .github/workflows/build.yml and build_audio_separator.py
 $PinnedAudioSeparatorVersion = "0.41.1"
-$PinnedOnnxruntimeGpuVersion = "1.24.1"
+$PinnedOnnxruntimeDmlVersion = "1.24.1"
 
 # Create directories
 if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null }
@@ -182,13 +182,13 @@ if ($venvPython) {
     Write-Host "Venv not ready" -ForegroundColor Yellow
 }
 
-# Check ONNX Runtime GPU (in venv)
-Write-Host "Checking ONNX Runtime GPU (venv)... " -NoNewline
+# Check ONNX Runtime DirectML (in venv)
+Write-Host "Checking ONNX Runtime DirectML (venv)... " -NoNewline
 if ($venvPython) {
-    $onnxGpuCheck = $null
-    try { $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null } catch {}
-    if ($onnxGpuCheck -eq "yes") {
-        Write-Host "OK (CUDA available)" -ForegroundColor Green
+    $onnxDmlCheck = $null
+    try { $onnxDmlCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'DmlExecutionProvider' in providers else 'no')" 2>$null } catch {}
+    if ($onnxDmlCheck -eq "yes") {
+        Write-Host "OK (DirectML available)" -ForegroundColor Green
         $OnnxGpuOK = $true
     } else {
         Write-Host "Not available" -ForegroundColor Yellow
@@ -271,48 +271,37 @@ if ($VenvOK -and -not $AudioSeparatorOK) {
     }
 }
 
-# Install ONNX Runtime GPU in venv
+# Install ONNX Runtime DirectML in venv
 if ($VenvOK -and $AudioSeparatorOK -and -not $OnnxGpuOK) {
-    # Check for NVIDIA GPU
-    $hasNvidia = $false
+    Write-Host ""
+    Write-Host "ONNX Runtime DirectML not installed." -ForegroundColor Yellow
+    Write-Host "  This will download ONNX Runtime with DirectML support (works with any GPU)." -ForegroundColor Gray
+    Write-Host "Press Enter to install DirectML version, or Ctrl+C to skip..." -ForegroundColor Cyan
+    Read-Host | Out-Null
+
+    Write-Host "Installing ONNX Runtime DirectML in venv..." -ForegroundColor Cyan
+    $venvPip = Get-VenvPip
+    $venvPython = Get-VenvPython
+
     try {
-        nvidia-smi 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { $hasNvidia = $true }
-    } catch {}
+        # Uninstall CPU version first
+        Write-Host "  Removing CPU-only ONNX Runtime..." -ForegroundColor Gray
+        & $venvPip uninstall onnxruntime -y 2>$null | Out-Null
 
-    if ($hasNvidia) {
-        Write-Host ""
-        Write-Host "NVIDIA GPU detected. ONNX Runtime GPU not installed." -ForegroundColor Yellow
-        Write-Host "  This will download ONNX Runtime with CUDA support." -ForegroundColor Gray
-        Write-Host "Press Enter to install GPU version, or Ctrl+C to skip..." -ForegroundColor Cyan
-        Read-Host | Out-Null
+        # Install DirectML version
+        Write-Host "  Installing ONNX Runtime DirectML..." -ForegroundColor Gray
+        & $venvPip install onnxruntime-directml==$PinnedOnnxruntimeDmlVersion
 
-        Write-Host "Installing ONNX Runtime GPU in venv..." -ForegroundColor Cyan
-        $venvPip = Get-VenvPip
-        $venvPython = Get-VenvPython
-
-        try {
-            # Uninstall CPU version first
-            Write-Host "  Removing CPU-only ONNX Runtime..." -ForegroundColor Gray
-            & $venvPip uninstall onnxruntime -y 2>$null | Out-Null
-
-            # Install GPU version
-            Write-Host "  Installing ONNX Runtime GPU..." -ForegroundColor Gray
-            & $venvPip install onnxruntime-gpu==$PinnedOnnxruntimeGpuVersion
-
-            # Verify
-            $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null
-            if ($onnxGpuCheck -eq "yes") {
-                Write-Host "  ONNX Runtime GPU installed successfully" -ForegroundColor Green
-                $OnnxGpuOK = $true
-            } else {
-                Write-Host "  ONNX Runtime installed but CUDA not available (driver issue?)" -ForegroundColor Yellow
-            }
-        } catch {
-            Write-Host "  Failed to install ONNX Runtime GPU: $_" -ForegroundColor Red
+        # Verify
+        $onnxDmlCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'DmlExecutionProvider' in providers else 'no')" 2>$null
+        if ($onnxDmlCheck -eq "yes") {
+            Write-Host "  ONNX Runtime DirectML installed successfully" -ForegroundColor Green
+            $OnnxGpuOK = $true
+        } else {
+            Write-Host "  ONNX Runtime installed but DirectML not available (driver issue?)" -ForegroundColor Yellow
         }
-    } else {
-        Write-Host "No NVIDIA GPU detected, skipping GPU installation" -ForegroundColor Gray
+    } catch {
+        Write-Host "  Failed to install ONNX Runtime DirectML: $_" -ForegroundColor Red
     }
 }
 
@@ -400,8 +389,8 @@ else { Write-Host "  [X]  Python venv" -ForegroundColor Red; $allOk = $false }
 if ($AudioSeparatorOK) { Write-Host "  [OK] audio-separator (venv)" -ForegroundColor Green }
 else { Write-Host "  [X]  audio-separator (venv)" -ForegroundColor Red; $allOk = $false }
 
-if ($OnnxGpuOK) { Write-Host "  [OK] ONNX Runtime GPU (venv)" -ForegroundColor Green }
-else { Write-Host "  [--] ONNX Runtime GPU (optional)" -ForegroundColor Gray }
+if ($OnnxGpuOK) { Write-Host "  [OK] ONNX Runtime DirectML (venv)" -ForegroundColor Green }
+else { Write-Host "  [--] ONNX Runtime DirectML (optional)" -ForegroundColor Gray }
 
 Write-Host ""
 

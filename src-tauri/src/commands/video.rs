@@ -943,7 +943,7 @@ fn check_onnx_gpu() -> bool {
             r#"
 import onnxruntime as ort
 providers = ort.get_available_providers()
-has_gpu = 'CUDAExecutionProvider' in providers or 'TensorrtExecutionProvider' in providers or 'DmlExecutionProvider' in providers
+has_gpu = 'DmlExecutionProvider' in providers or 'CUDAExecutionProvider' in providers
 print('onnx_gpu_ok' if has_gpu else 'onnx_gpu_no')
 "#,
         ])

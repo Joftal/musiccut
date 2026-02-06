@@ -111,9 +111,9 @@ if (Test-Path $venvPython) {
     }
 
     # Check ONNX Runtime GPU
-    $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null
+    $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'DmlExecutionProvider' in providers or 'CUDAExecutionProvider' in providers else 'no')" 2>$null
     if ($onnxGpuCheck -eq "yes") {
-        Write-Host "[OK] ONNX Runtime GPU: CUDA available" -ForegroundColor Green
+        Write-Host "[OK] ONNX Runtime GPU: DirectML/CUDA available" -ForegroundColor Green
     } else {
         Write-Host "[--] ONNX Runtime GPU not available (CPU mode)" -ForegroundColor Gray
     }
