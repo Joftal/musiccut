@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/Tauri-2.x-orange?style=flat-square&logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="React">
   <img src="https://img.shields.io/badge/Rust-stable-dea584?style=flat-square&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/License-GPLv3-blue?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/License-AGPLv3-blue?style=flat-square" alt="License">
 </p>
 
 ---
@@ -147,14 +147,15 @@ cd musiccut
 
 ## 📄 License
 
-This project is licensed under the **[GNU General Public License v3.0 (GPLv3)](./LICENSE)**.
+This project is licensed under the **[GNU Affero General Public License v3.0 (AGPLv3)](./LICENSE)**.
 
 This means:
 
 - ✅ You are free to use, modify, and distribute this software
 - ✅ You may use this software for commercial purposes
-- 📋 Modified versions must also be released under GPLv3
+- 📋 Modified versions must also be released under AGPLv3
 - 📋 Distribution must include the complete source code or a way to obtain it
+- 📋 Modified versions providing network services must also make source code available
 - 📋 Original copyright notices and license must be preserved
 
 See the [LICENSE](./LICENSE) file for details.

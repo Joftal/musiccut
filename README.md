@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/Tauri-2.x-orange?style=flat-square&logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="React">
   <img src="https://img.shields.io/badge/Rust-stable-dea584?style=flat-square&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/License-GPLv3-blue?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/License-AGPLv3-blue?style=flat-square" alt="License">
 </p>
 
 ---
@@ -147,14 +147,15 @@ cd musiccut
 
 ## 📄 许可证
 
-本项目基于 **[GNU General Public License v3.0 (GPLv3)](./LICENSE)** 开源。
+本项目基于 **[GNU Affero General Public License v3.0 (AGPLv3)](./LICENSE)** 开源。
 
 这意味着：
 
 - ✅ 你可以自由使用、修改和分发本软件
 - ✅ 你可以将本软件用于商业用途
-- 📋 修改后的版本必须同样以 GPLv3 协议开源
+- 📋 修改后的版本必须同样以 AGPLv3 协议开源
 - 📋 分发时必须包含完整的源代码或提供获取源代码的方式
+- 📋 通过网络提供服务的修改版本也必须公开源代码
 - 📋 必须保留原始版权声明和许可证
 
 详见 [LICENSE](./LICENSE) 文件。
