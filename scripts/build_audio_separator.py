@@ -30,19 +30,35 @@ datas = []
 datas += collect_data_files('audio_separator')
 datas += collect_data_files('onnxruntime')
 datas += collect_data_files('torch')
+datas += collect_data_files('onnx2torch')
+datas += collect_data_files('torchvision')
+datas += collect_data_files('samplerate')
+datas += collect_data_files('resampy')
+datas += collect_data_files('librosa')
 
 # Collect all submodules
 hiddenimports = []
 hiddenimports += collect_submodules('audio_separator')
 hiddenimports += collect_submodules('onnxruntime')
 hiddenimports += collect_submodules('torch')
+hiddenimports += collect_submodules('onnx2torch')
+hiddenimports += collect_submodules('torchvision')
+hiddenimports += collect_submodules('samplerate')
+hiddenimports += collect_submodules('resampy')
 hiddenimports += [
     'numpy',
     'scipy',
     'librosa',
     'soundfile',
     'pydub',
-    'torch',
+    'einops',
+    'julius',
+    'diffq',
+    'beartype',
+    'ml_collections',
+    'rotary_embedding_torch',
+    'tqdm',
+    '_cffi_backend',
     'audio_separator.utils.cli',
 ]
 
@@ -61,7 +77,6 @@ a = Analysis(
         'PIL',
         'IPython',
         'jupyter',
-        'torchvision',
         'torchaudio',
     ],
     win_no_prefer_redirects=False,
@@ -166,7 +181,7 @@ def install_dependencies():
     pip = str(get_pip())
 
     print("Installing PyTorch (CPU only, required by audio-separator)...")
-    if not run_command([pip, "install", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
         print("Warning: PyTorch CPU install failed")
         return False
 

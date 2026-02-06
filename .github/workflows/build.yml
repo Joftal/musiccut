@@ -149,7 +149,7 @@ jobs:
           python -m venv tools\venv
 
           Write-Host "Installing PyTorch (CPU only, required by audio-separator)..."
-          .\tools\venv\Scripts\pip.exe install torch --index-url https://download.pytorch.org/whl/cpu
+          .\tools\venv\Scripts\pip.exe install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
           Write-Host "Installing ONNX Runtime GPU..."
           .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
