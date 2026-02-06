@@ -923,8 +923,10 @@ pub fn preload_gpu_capabilities() {
 
 /// 检测 ONNX Runtime GPU 是否可用
 fn check_onnx_gpu() -> bool {
+    // 获取检测到的 GPU 类型，用于选择正确的 audio-separator 版本
+    let gpu_type = config::get_config().detected_gpu;
     // 优先使用打包的 audio-separator 检测 GPU（生产环境）
-    let separator_path = separator::resolve_separator_path();
+    let separator_path = separator::resolve_separator_path(&gpu_type);
     let output = hidden_command(&separator_path)
         .args(["--check-gpu"])
         .output();

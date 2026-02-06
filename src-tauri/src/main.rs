@@ -52,6 +52,63 @@ fn get_app_data_dir() -> PathBuf {
         .join("data")
 }
 
+/// 同步检测 GPU 类型并更新配置
+/// 必须在 preload_gpu_capabilities 之前调用，因为后者依赖 detected_gpu 选择正确的 audio-separator 版本
+fn sync_detect_gpu() {
+    let gpu_type = detect_gpu_type();
+    let mut current = config::get_config();
+
+    if current.detected_gpu != gpu_type {
+        info!("[GPU] 检测到 GPU 类型变化: {:?} -> {:?}", current.detected_gpu, gpu_type);
+        current.detected_gpu = gpu_type;
+        if let Err(e) = config::update_config(current) {
+            error!("[GPU] 更新配置失败: {}", e);
+        }
+    } else {
+        info!("[GPU] GPU 类型未变化: {:?}", gpu_type);
+    }
+}
+
+/// 检测 GPU 类型
+fn detect_gpu_type() -> config::GpuType {
+    use crate::utils::hidden_command;
+
+    // 检测 NVIDIA GPU
+    if let Ok(output) = hidden_command("nvidia-smi")
+        .args(["--query-gpu=name", "--format=csv,noheader"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.trim().is_empty() {
+                info!("[GPU] 检测到 NVIDIA GPU: {}", stdout.trim());
+                return config::GpuType::Nvidia;
+            }
+        }
+    }
+
+    // 检测 AMD / Intel GPU (Windows)
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = hidden_command("wmic")
+            .args(["path", "win32_VideoController", "get", "name"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            if stdout.contains("amd") || stdout.contains("radeon") {
+                info!("[GPU] 检测到 AMD GPU");
+                return config::GpuType::Amd;
+            }
+            if stdout.contains("intel") {
+                info!("[GPU] 检测到 Intel GPU");
+                return config::GpuType::Intel;
+            }
+        }
+    }
+
+    config::GpuType::None
+}
+
 fn main() {
     // 获取应用数据目录用于日志
     let app_dir = get_app_data_dir();
@@ -139,6 +196,9 @@ fn main() {
             }
 
             info!("MusicCut 初始化完成");
+
+            // 同步检测 GPU 类型（必须先于 preload_gpu_capabilities，因为后者依赖 detected_gpu）
+            sync_detect_gpu();
 
             // 异步预检测 GPU 能力，避免首次使用时阻塞
             commands::video::preload_gpu_capabilities();

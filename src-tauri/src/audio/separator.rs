@@ -111,7 +111,7 @@ pub fn separate_vocals(
     info!("正在启动 audio-separator 进程...");
 
     // 获取 audio-separator 路径（优先使用打包版本）
-    let separator_path = resolve_separator_path();
+    let separator_path = resolve_separator_path(gpu_type);
     info!("audio-separator 路径: {}", separator_path);
 
     // 构建命令
@@ -420,21 +420,42 @@ fn parse_progress(line: &str) -> Option<f32> {
 }
 
 /// 解析 audio-separator 路径
-/// 优先使用打包版本，否则使用系统 PATH 中的版本
-pub fn resolve_separator_path() -> String {
+/// 根据 GPU 类型选择 CUDA 或 DirectML 版本
+/// NVIDIA GPU → 优先 audio-separator-cuda，回退 audio-separator-dml
+/// AMD/Intel/None → 优先 audio-separator-dml，回退 audio-separator-cuda
+pub fn resolve_separator_path(gpu_type: &GpuType) -> String {
     use crate::utils::get_exe_dir;
 
+    // 根据 GPU 类型决定优先和回退版本
+    let (preferred, fallback) = match gpu_type {
+        GpuType::Nvidia => ("audio-separator-cuda", "audio-separator-dml"),
+        _ => ("audio-separator-dml", "audio-separator-cuda"),
+    };
+
     if let Some(exe_dir) = get_exe_dir() {
-        // 检查打包版本：exe目录/audio-separator/audio-separator.exe
-        let bundled_path = exe_dir.join("audio-separator").join("audio-separator.exe");
-        if bundled_path.exists() {
-            return bundled_path.to_string_lossy().to_string();
+        // 检查打包版本（生产环境）
+        for variant in [preferred, fallback] {
+            let bundled_path = exe_dir.join(variant).join("audio-separator.exe");
+            if bundled_path.exists() {
+                info!("使用 {} 版本: {}", variant, bundled_path.display());
+                return bundled_path.to_string_lossy().to_string();
+            }
+        }
+
+        // 兼容旧版单目录布局
+        let legacy_path = exe_dir.join("audio-separator").join("audio-separator.exe");
+        if legacy_path.exists() {
+            info!("使用旧版 audio-separator: {}", legacy_path.display());
+            return legacy_path.to_string_lossy().to_string();
         }
 
         // 检查 resources 目录（开发模式）
-        let resources_path = exe_dir.join("resources").join("audio-separator").join("audio-separator.exe");
-        if resources_path.exists() {
-            return resources_path.to_string_lossy().to_string();
+        for variant in [preferred, fallback, "audio-separator"] {
+            let resources_path = exe_dir.join("resources").join(variant).join("audio-separator.exe");
+            if resources_path.exists() {
+                info!("使用开发模式 {} 版本: {}", variant, resources_path.display());
+                return resources_path.to_string_lossy().to_string();
+            }
         }
     }
 

@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
 audio-separator PyInstaller build script
-Creates a standalone executable with ONNX Runtime DirectML GPU support
-Includes PyTorch CPU for audio-separator compatibility
+Creates standalone executables with GPU support:
+  - cuda variant: ONNX Runtime GPU (CUDA) + PyTorch CUDA for NVIDIA GPUs
+  - dml variant:  ONNX Runtime DirectML + PyTorch CPU for AMD/Intel GPUs
 """
 
-import os
 import sys
 import subprocess
 import shutil
+import argparse
 from pathlib import Path
 
 # Configuration
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-OUTPUT_DIR = PROJECT_ROOT / "dist" / "audio-separator"
 TOOLS_DIR = PROJECT_ROOT / "tools"
-VENV_DIR = TOOLS_DIR / "venv"
 
 # ── Pinned dependency versions ──
 # Keep in sync with .github/workflows/build.yml env variables
@@ -25,11 +24,17 @@ TORCHVISION_VERSION = "0.25.0"
 PILLOW_VERSION = "12.1.0"
 AUDIO_SEPARATOR_VERSION = "0.41.1"
 ONNXRUNTIME_DML_VERSION = "1.24.1"
+ONNXRUNTIME_GPU_VERSION = "1.24.1"
 ONNX_VERSION = "1.20.1"
 PYINSTALLER_VERSION = "6.18.0"
 
-# PyInstaller spec file content
-SPEC_CONTENT = '''# -*- mode: python ; coding: utf-8 -*-
+TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
+
+def get_spec_content(variant):
+    """Generate PyInstaller spec file content for the given variant."""
+    collect_name = f"audio-separator-{variant}"
+    return f'''# -*- mode: python ; coding: utf-8 -*-
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
@@ -89,7 +94,7 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
-    hooksconfig={},
+    hooksconfig={{}},
     runtime_hooks=[],
     excludes=[
         'matplotlib',
@@ -132,7 +137,7 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='audio-separator',
+    name='{collect_name}',
 )
 '''
 
@@ -144,53 +149,76 @@ def run_command(cmd, cwd=None, check=True):
     return result.returncode == 0
 
 
-def create_venv():
+def get_variant_paths(variant):
+    """Get output and venv paths for a given variant."""
+    output_dir = PROJECT_ROOT / "dist" / f"audio-separator-{variant}"
+    venv_dir = TOOLS_DIR / f"venv-{variant}"
+    return output_dir, venv_dir
+
+
+def create_venv(venv_dir):
     """Create virtual environment"""
-    if VENV_DIR.exists():
-        print(f"Virtual environment exists: {VENV_DIR}")
+    if venv_dir.exists():
+        print(f"Virtual environment exists: {venv_dir}")
         return True
 
-    print(f"Creating virtual environment: {VENV_DIR}")
-    return run_command([sys.executable, "-m", "venv", str(VENV_DIR)])
+    print(f"Creating virtual environment: {venv_dir}")
+    return run_command([sys.executable, "-m", "venv", str(venv_dir)])
 
 
-def get_pip():
+def get_pip(venv_dir):
     """Get pip path"""
     if sys.platform == "win32":
-        return VENV_DIR / "Scripts" / "pip.exe"
-    return VENV_DIR / "bin" / "pip"
+        return venv_dir / "Scripts" / "pip.exe"
+    return venv_dir / "bin" / "pip"
 
 
-def get_python():
+def get_python(venv_dir):
     """Get Python path"""
     if sys.platform == "win32":
-        return VENV_DIR / "Scripts" / "python.exe"
-    return VENV_DIR / "bin" / "python"
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
 
 
-def install_dependencies():
-    """Install dependencies (ONNX Runtime + PyTorch CPU)"""
-    pip = str(get_pip())
+def install_dependencies(variant, venv_dir):
+    """Install dependencies for the given variant.
+
+    cuda: PyTorch CUDA + onnxruntime-gpu
+    dml:  PyTorch CPU  + onnxruntime-directml
+    """
+    pip = str(get_pip(venv_dir))
 
     print(f"Installing Pillow=={PILLOW_VERSION} (required by torchvision)...")
     if not run_command([pip, "install", f"pillow=={PILLOW_VERSION}"]):
         print("Warning: Pillow install failed")
         return False
 
-    print(f"Installing PyTorch=={TORCH_VERSION} (CPU only, required by audio-separator)...")
-    if not run_command([pip, "install", f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", "--index-url", "https://download.pytorch.org/whl/cpu"]):
-        print("Warning: PyTorch CPU install failed")
-        return False
+    if variant == "cuda":
+        print(f"Installing PyTorch=={TORCH_VERSION} (CUDA, for NVIDIA GPU)...")
+        if not run_command([pip, "install", f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", "--index-url", TORCH_CUDA_INDEX]):
+            print("Warning: PyTorch CUDA install failed")
+            return False
+    else:
+        print(f"Installing PyTorch=={TORCH_VERSION} (CPU only)...")
+        if not run_command([pip, "install", f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", "--index-url", TORCH_CPU_INDEX]):
+            print("Warning: PyTorch CPU install failed")
+            return False
 
     print(f"Installing audio-separator=={AUDIO_SEPARATOR_VERSION}...")
     if not run_command([pip, "install", f"audio-separator=={AUDIO_SEPARATOR_VERSION}", f"onnx=={ONNX_VERSION}"]):
         return False
 
-    print(f"Installing ONNX Runtime DirectML=={ONNXRUNTIME_DML_VERSION} (override CPU version)...")
-    if not run_command([pip, "install", f"onnxruntime-directml=={ONNXRUNTIME_DML_VERSION}"]):
-        print("Warning: ONNX Runtime DirectML install failed, trying CPU version...")
-        if not run_command([pip, "install", "onnxruntime"]):
+    if variant == "cuda":
+        print(f"Installing ONNX Runtime GPU=={ONNXRUNTIME_GPU_VERSION} (CUDA)...")
+        if not run_command([pip, "install", f"onnxruntime-gpu=={ONNXRUNTIME_GPU_VERSION}"]):
+            print("Warning: ONNX Runtime GPU install failed")
             return False
+    else:
+        print(f"Installing ONNX Runtime DirectML=={ONNXRUNTIME_DML_VERSION}...")
+        if not run_command([pip, "install", f"onnxruntime-directml=={ONNXRUNTIME_DML_VERSION}"]):
+            print("Warning: ONNX Runtime DirectML install failed, trying CPU version...")
+            if not run_command([pip, "install", "onnxruntime"]):
+                return False
 
     print(f"Installing PyInstaller=={PYINSTALLER_VERSION}...")
     if not run_command([pip, "install", f"pyinstaller=={PYINSTALLER_VERSION}"]):
@@ -199,11 +227,11 @@ def install_dependencies():
     return True
 
 
-def create_spec_file():
-    """Create PyInstaller spec file"""
-    spec_path = SCRIPT_DIR / "audio_separator.spec"
+def create_spec_file(variant):
+    """Create PyInstaller spec file for the given variant"""
+    spec_path = SCRIPT_DIR / f"audio_separator_{variant}.spec"
     print(f"Creating spec file: {spec_path}")
-    spec_path.write_text(SPEC_CONTENT, encoding="utf-8")
+    spec_path.write_text(get_spec_content(variant), encoding="utf-8")
     return spec_path
 
 
@@ -216,26 +244,26 @@ def create_entry_script():
     return entry_path
 
 
-def build():
-    """Execute build"""
-    python = str(get_python())
-    spec_path = create_spec_file()
+def build(variant, output_dir, venv_dir):
+    """Execute build for the given variant"""
+    python = str(get_python(venv_dir))
+    spec_path = create_spec_file(variant)
     create_entry_script()
 
-    print("Starting PyInstaller build...")
+    print(f"Starting PyInstaller build ({variant})...")
     return run_command([
         python, "-m", "PyInstaller",
-        "--distpath", str(OUTPUT_DIR.parent),
-        "--workpath", str(SCRIPT_DIR / "build"),
+        "--distpath", str(output_dir.parent),
+        "--workpath", str(SCRIPT_DIR / f"build-{variant}"),
         "--clean",
         str(spec_path)
     ], cwd=SCRIPT_DIR)
 
 
-def copy_to_tauri():
+def copy_to_tauri(variant, output_dir):
     """Copy to Tauri resources directory"""
-    src = OUTPUT_DIR
-    dst = PROJECT_ROOT / "src-tauri" / "resources" / "audio-separator"
+    src = output_dir
+    dst = PROJECT_ROOT / "src-tauri" / "resources" / f"audio-separator-{variant}"
 
     if not src.exists():
         print(f"Error: Build output not found: {src}")
@@ -250,38 +278,66 @@ def copy_to_tauri():
     return True
 
 
-def main():
-    """Main function"""
-    print("=" * 60)
-    print("audio-separator PyInstaller Build Tool")
-    print("=" * 60)
+def build_variant(variant):
+    """Build a single variant (cuda or dml)."""
+    output_dir, venv_dir = get_variant_paths(variant)
+
+    print(f"\n{'=' * 60}")
+    print(f"Building audio-separator [{variant.upper()}] variant")
+    print(f"{'=' * 60}")
 
     # Step 1: Create virtual environment
-    print("\n[1/4] Creating virtual environment...")
-    if not create_venv():
-        print("Error: Failed to create virtual environment")
+    print(f"\n[1/4] Creating virtual environment ({variant})...")
+    if not create_venv(venv_dir):
+        print(f"Error: Failed to create virtual environment for {variant}")
         return 1
 
     # Step 2: Install dependencies
-    print("\n[2/4] Installing dependencies...")
-    if not install_dependencies():
-        print("Error: Failed to install dependencies")
+    print(f"\n[2/4] Installing dependencies ({variant})...")
+    if not install_dependencies(variant, venv_dir):
+        print(f"Error: Failed to install dependencies for {variant}")
         return 1
 
     # Step 3: Build
-    print("\n[3/4] Building...")
-    if not build():
-        print("Error: Build failed")
+    print(f"\n[3/4] Building ({variant})...")
+    if not build(variant, output_dir, venv_dir):
+        print(f"Error: Build failed for {variant}")
         return 1
 
     # Step 4: Copy to Tauri resources
-    print("\n[4/4] Copying to Tauri resources...")
-    if not copy_to_tauri():
-        print("Warning: Copy failed, please copy manually")
+    print(f"\n[4/4] Copying to Tauri resources ({variant})...")
+    if not copy_to_tauri(variant, output_dir):
+        print(f"Warning: Copy failed for {variant}, please copy manually")
+
+    print(f"\nBuild complete for [{variant.upper()}]: {output_dir}")
+    return 0
+
+
+def main():
+    """Main function"""
+    parser = argparse.ArgumentParser(description="audio-separator PyInstaller Build Tool")
+    parser.add_argument(
+        "--variant",
+        choices=["cuda", "dml", "both"],
+        default="both",
+        help="Build variant: cuda (NVIDIA), dml (AMD/Intel), or both (default: both)",
+    )
+    args = parser.parse_args()
+
+    variants = ["cuda", "dml"] if args.variant == "both" else [args.variant]
+
+    print("=" * 60)
+    print("audio-separator PyInstaller Build Tool")
+    print(f"Variants to build: {', '.join(v.upper() for v in variants)}")
+    print("=" * 60)
+
+    for variant in variants:
+        result = build_variant(variant)
+        if result != 0:
+            return result
 
     print("\n" + "=" * 60)
-    print("Build complete!")
-    print(f"Output directory: {OUTPUT_DIR}")
+    print("All builds complete!")
     print("=" * 60)
 
     return 0

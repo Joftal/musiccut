@@ -122,7 +122,8 @@ dist/
 │   ├── 🎯 MusicCut.exe          # Main program
 │   ├── 📂 ffmpeg/               # FFmpeg tools
 │   ├── 📂 models/               # AI models
-│   └── 📂 audio-separator/      # Vocal separation tool
+│   ├── 📂 audio-separator-cuda/ # Vocal separation tool (NVIDIA CUDA)
+│   └── 📂 audio-separator-dml/  # Vocal separation tool (AMD/Intel DirectML)
 └── 📦 MusicCut_1.0.0_x64.7z     # Release package
 ```
 
@@ -130,20 +131,29 @@ dist/
 
 ## 🎮 GPU Acceleration
 
+The application includes two GPU acceleration engines, automatically detected at startup:
+
 ### 💚 NVIDIA GPU (Recommended)
 
 | Requirement | Description |
 |:---|:---|
 | Driver version | >= 450 |
-| Installation | `setup.ps1` will automatically install ONNX Runtime GPU |
-
-### 💙 Intel GPU
-
-- Requires FFmpeg with **QSV** (Quick Sync Video) support
+| Acceleration | CUDA (full GPU performance) |
+| Selection | Automatically uses `audio-separator-cuda` |
 
 ### ❤️ AMD GPU
 
-- Requires FFmpeg with **AMF** (Advanced Media Framework) support
+| Requirement | Description |
+|:---|:---|
+| Acceleration | DirectML |
+| Selection | Automatically uses `audio-separator-dml` |
+
+### 💙 Intel GPU
+
+| Requirement | Description |
+|:---|:---|
+| Acceleration | DirectML |
+| Selection | Automatically uses `audio-separator-dml` |
 
 ---
 

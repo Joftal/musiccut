@@ -41,17 +41,25 @@ ffmpeg/*.exe
 
 # Python virtual environment
 tools/venv/
+tools/venv-cuda/
+tools/venv-dml/
 
 # PyInstaller build artifacts
 scripts/audio_separator.spec
+scripts/audio_separator_cuda.spec
+scripts/audio_separator_dml.spec
 scripts/audio_separator_entry.py
 scripts/build/
+scripts/build-cuda/
+scripts/build-dml/
 
 # AI models (auto-downloaded)
 models/audio-separator/
 
 # Packaged resources
 src-tauri/resources/audio-separator/
+src-tauri/resources/audio-separator-cuda/
+src-tauri/resources/audio-separator-dml/
 
 # Claude Code config
 .claude/

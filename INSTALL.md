@@ -122,7 +122,8 @@ dist/
 │   ├── 🎯 MusicCut.exe          # 主程序
 │   ├── 📂 ffmpeg/               # FFmpeg 工具
 │   ├── 📂 models/               # AI 模型
-│   └── 📂 audio-separator/      # 人声分离工具
+│   ├── 📂 audio-separator-cuda/ # 人声分离工具 (NVIDIA CUDA)
+│   └── 📂 audio-separator-dml/  # 人声分离工具 (AMD/Intel DirectML)
 └── 📦 MusicCut_1.0.0_x64.7z     # 发布包
 ```
 
@@ -130,20 +131,29 @@ dist/
 
 ## 🎮 GPU 加速
 
+程序内置两套 GPU 加速引擎，启动时自动检测并选择：
+
 ### 💚 NVIDIA GPU (推荐)
 
 | 要求 | 说明 |
 |:---|:---|
 | 驱动版本 | >= 450 |
-| 安装方式 | `setup.ps1` 会自动安装 ONNX Runtime GPU |
-
-### 💙 Intel GPU
-
-- 需要 FFmpeg 支持 **QSV** (Quick Sync Video)
+| 加速方式 | CUDA（完整 GPU 性能） |
+| 安装方式 | 自动选择 `audio-separator-cuda` |
 
 ### ❤️ AMD GPU
 
-- 需要 FFmpeg 支持 **AMF** (Advanced Media Framework)
+| 要求 | 说明 |
+|:---|:---|
+| 加速方式 | DirectML |
+| 安装方式 | 自动选择 `audio-separator-dml` |
+
+### 💙 Intel GPU
+
+| 要求 | 说明 |
+|:---|:---|
+| 加速方式 | DirectML |
+| 安装方式 | 自动选择 `audio-separator-dml` |
 
 ---
 

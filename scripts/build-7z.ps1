@@ -13,7 +13,8 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $FFmpegDir = Join-Path $ProjectRoot "ffmpeg"
 $ModelsDir = Join-Path $ProjectRoot "models"
-$AudioSeparatorDist = Join-Path $ProjectRoot "src-tauri\resources\audio-separator"
+$AudioSeparatorCudaDist = Join-Path $ProjectRoot "src-tauri\resources\audio-separator-cuda"
+$AudioSeparatorDmlDist = Join-Path $ProjectRoot "src-tauri\resources\audio-separator-dml"
 $ReleaseDir = Join-Path $ProjectRoot "src-tauri\target\release"
 $OutputDir = Join-Path $ProjectRoot "dist\MusicCut"
 $FinalOutput = Join-Path $ProjectRoot "dist"
@@ -76,13 +77,25 @@ if ($modelCount -gt 0) {
     Write-Host "[!]  No models found" -ForegroundColor Yellow
 }
 
-# audio-separator
-if (Test-Path $AudioSeparatorDist) {
-    $sepSize = (Get-ChildItem -Path $AudioSeparatorDist -Recurse -File | Measure-Object -Property Length -Sum).Sum
-    $sepSizeMB = [math]::Round($sepSize / 1MB, 2)
-    Write-Host "[OK] audio-separator: $sepSizeMB MB" -ForegroundColor Green
+# audio-separator (CUDA variant)
+$sepSizeMB = 0
+if (Test-Path $AudioSeparatorCudaDist) {
+    $sepCudaSize = (Get-ChildItem -Path $AudioSeparatorCudaDist -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $sepCudaSizeMB = [math]::Round($sepCudaSize / 1MB, 2)
+    $sepSizeMB += $sepCudaSizeMB
+    Write-Host "[OK] audio-separator-cuda: $sepCudaSizeMB MB" -ForegroundColor Green
 } else {
-    Write-Host "[!]  audio-separator not found" -ForegroundColor Yellow
+    Write-Host "[!]  audio-separator-cuda not found" -ForegroundColor Yellow
+}
+
+# audio-separator (DML variant)
+if (Test-Path $AudioSeparatorDmlDist) {
+    $sepDmlSize = (Get-ChildItem -Path $AudioSeparatorDmlDist -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $sepDmlSizeMB = [math]::Round($sepDmlSize / 1MB, 2)
+    $sepSizeMB += $sepDmlSizeMB
+    Write-Host "[OK] audio-separator-dml: $sepDmlSizeMB MB" -ForegroundColor Green
+} else {
+    Write-Host "[!]  audio-separator-dml not found" -ForegroundColor Yellow
 }
 
 if ($hasError) {
@@ -179,11 +192,16 @@ if ($modelCount -gt 0) {
     Copy-Item -Recurse $ModelsDir $destModels
 }
 
-# Copy audio-separator
-if (Test-Path $AudioSeparatorDist) {
-    Write-Host "Copying audio-separator ($sepSizeMB MB)..." -ForegroundColor Gray
-    $destSep = Join-Path $OutputDir "audio-separator"
-    Copy-Item -Recurse $AudioSeparatorDist $destSep
+# Copy audio-separator (both CUDA and DML variants)
+if (Test-Path $AudioSeparatorCudaDist) {
+    Write-Host "Copying audio-separator-cuda..." -ForegroundColor Gray
+    $destSepCuda = Join-Path $OutputDir "audio-separator-cuda"
+    Copy-Item -Recurse $AudioSeparatorCudaDist $destSepCuda
+}
+if (Test-Path $AudioSeparatorDmlDist) {
+    Write-Host "Copying audio-separator-dml..." -ForegroundColor Gray
+    $destSepDml = Join-Path $OutputDir "audio-separator-dml"
+    Copy-Item -Recurse $AudioSeparatorDmlDist $destSepDml
 }
 
 # Create run script

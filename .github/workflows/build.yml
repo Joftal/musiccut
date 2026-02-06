@@ -30,6 +30,7 @@ env:
   PILLOW_VERSION: '12.1.0'
   AUDIO_SEPARATOR_VERSION: '0.41.1'
   ONNXRUNTIME_DML_VERSION: '1.24.1'
+  ONNXRUNTIME_GPU_VERSION: '1.24.1'
   ONNX_VERSION: '1.20.1'
   PYINSTALLER_VERSION: '6.18.0'
   FPCALC_VERSION: '1.6.0'
@@ -191,29 +192,53 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Build audio-separator package
+      - name: Build audio-separator DML package (AMD/Intel GPU)
         shell: pwsh
         run: |
-          Write-Host "Creating Python virtual environment..."
-          python -m venv tools\venv
+          Write-Host "Creating Python virtual environment for DML variant..."
+          python -m venv tools\venv-dml
 
           Write-Host "Installing Pillow (required by torchvision)..."
-          .\tools\venv\Scripts\pip.exe install pillow==${{ env.PILLOW_VERSION }}
+          .\tools\venv-dml\Scripts\pip.exe install pillow==${{ env.PILLOW_VERSION }}
 
-          Write-Host "Installing PyTorch (CPU only, required by audio-separator)..."
-          .\tools\venv\Scripts\pip.exe install torch==${{ env.TORCH_VERSION }} torchvision==${{ env.TORCHVISION_VERSION }} --index-url https://download.pytorch.org/whl/cpu
+          Write-Host "Installing PyTorch (CPU only)..."
+          .\tools\venv-dml\Scripts\pip.exe install torch==${{ env.TORCH_VERSION }} torchvision==${{ env.TORCHVISION_VERSION }} --index-url https://download.pytorch.org/whl/cpu
 
           Write-Host "Installing audio-separator and PyInstaller..."
-          .\tools\venv\Scripts\pip.exe install audio-separator==${{ env.AUDIO_SEPARATOR_VERSION }} pyinstaller==${{ env.PYINSTALLER_VERSION }} onnx==${{ env.ONNX_VERSION }}
+          .\tools\venv-dml\Scripts\pip.exe install audio-separator==${{ env.AUDIO_SEPARATOR_VERSION }} pyinstaller==${{ env.PYINSTALLER_VERSION }} onnx==${{ env.ONNX_VERSION }}
 
-          Write-Host "Installing ONNX Runtime DirectML (override CPU version from audio-separator)..."
-          .\tools\venv\Scripts\pip.exe install onnxruntime-directml==${{ env.ONNXRUNTIME_DML_VERSION }}
+          Write-Host "Installing ONNX Runtime DirectML..."
+          .\tools\venv-dml\Scripts\pip.exe install onnxruntime-directml==${{ env.ONNXRUNTIME_DML_VERSION }}
 
-          Write-Host "Building audio-separator executable..."
-          .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
+          Write-Host "Building audio-separator DML executable..."
+          .\tools\venv-dml\Scripts\python.exe .\scripts\build_audio_separator.py --variant dml
 
-          Write-Host "audio-separator package ready:"
-          Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
+          Write-Host "audio-separator DML package ready:"
+          Get-ChildItem "src-tauri\resources\audio-separator-dml" -ErrorAction SilentlyContinue
+
+      - name: Build audio-separator CUDA package (NVIDIA GPU)
+        shell: pwsh
+        run: |
+          Write-Host "Creating Python virtual environment for CUDA variant..."
+          python -m venv tools\venv-cuda
+
+          Write-Host "Installing Pillow (required by torchvision)..."
+          .\tools\venv-cuda\Scripts\pip.exe install pillow==${{ env.PILLOW_VERSION }}
+
+          Write-Host "Installing PyTorch (CUDA)..."
+          .\tools\venv-cuda\Scripts\pip.exe install torch==${{ env.TORCH_VERSION }} torchvision==${{ env.TORCHVISION_VERSION }} --index-url https://download.pytorch.org/whl/cu124
+
+          Write-Host "Installing audio-separator and PyInstaller..."
+          .\tools\venv-cuda\Scripts\pip.exe install audio-separator==${{ env.AUDIO_SEPARATOR_VERSION }} pyinstaller==${{ env.PYINSTALLER_VERSION }} onnx==${{ env.ONNX_VERSION }}
+
+          Write-Host "Installing ONNX Runtime GPU (CUDA)..."
+          .\tools\venv-cuda\Scripts\pip.exe install onnxruntime-gpu==${{ env.ONNXRUNTIME_GPU_VERSION }}
+
+          Write-Host "Building audio-separator CUDA executable..."
+          .\tools\venv-cuda\Scripts\python.exe .\scripts\build_audio_separator.py --variant cuda
+
+          Write-Host "audio-separator CUDA package ready:"
+          Get-ChildItem "src-tauri\resources\audio-separator-cuda" -ErrorAction SilentlyContinue
 
       - name: Download MDX-Net model and config files
         shell: pwsh
@@ -272,9 +297,12 @@ jobs:
             Copy-Item -Recurse "models" "$outputDir/models"
           }
 
-          # Copy audio-separator
-          if (Test-Path "src-tauri/resources/audio-separator") {
-            Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
+          # Copy audio-separator (both CUDA and DML variants)
+          if (Test-Path "src-tauri/resources/audio-separator-cuda") {
+            Copy-Item -Recurse "src-tauri/resources/audio-separator-cuda" "$outputDir/audio-separator-cuda"
+          }
+          if (Test-Path "src-tauri/resources/audio-separator-dml") {
+            Copy-Item -Recurse "src-tauri/resources/audio-separator-dml" "$outputDir/audio-separator-dml"
           }
 
           # Create 7z archive (avoid nesting dist/ in the archive)
@@ -311,9 +339,12 @@ jobs:
             Copy-Item -Recurse "models" "$outputDir/models"
           }
 
-          # Copy audio-separator
-          if (Test-Path "src-tauri/resources/audio-separator") {
-            Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
+          # Copy audio-separator (both CUDA and DML variants)
+          if (Test-Path "src-tauri/resources/audio-separator-cuda") {
+            Copy-Item -Recurse "src-tauri/resources/audio-separator-cuda" "$outputDir/audio-separator-cuda"
+          }
+          if (Test-Path "src-tauri/resources/audio-separator-dml") {
+            Copy-Item -Recurse "src-tauri/resources/audio-separator-dml" "$outputDir/audio-separator-dml"
           }
 
           # Create 7z archive (avoid nesting dist/ in the archive)
@@ -412,6 +443,12 @@ jobs:
             |:---:|:---|:---|
             | **FFmpeg** | 完整版，包含 FFmpeg | 推荐大多数用户使用 |
             | **NoFFmpeg** | 精简版，不含 FFmpeg | 已安装 FFmpeg 的用户 |
+
+            ## GPU 加速
+
+            程序内置两套 GPU 加速引擎，启动时自动检测并选择：
+            - **NVIDIA GPU** → CUDA 加速（完整 GPU 性能）
+            - **AMD / Intel GPU** → DirectML 加速
 
             ## 使用方法
 

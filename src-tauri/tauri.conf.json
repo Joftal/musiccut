@@ -140,7 +140,8 @@
         "center": true,
         "decorations": true,
         "transparent": false,
-        "visible": false
+        "visible": false,
+        "fileDropEnabled": false
       }
     ]
   }
