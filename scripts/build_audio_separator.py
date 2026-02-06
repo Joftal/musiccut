@@ -18,6 +18,16 @@ OUTPUT_DIR = PROJECT_ROOT / "dist" / "audio-separator"
 TOOLS_DIR = PROJECT_ROOT / "tools"
 VENV_DIR = TOOLS_DIR / "venv"
 
+# ── Pinned dependency versions ──
+# Keep in sync with .github/workflows/build.yml env variables
+TORCH_VERSION = "2.10.0"
+TORCHVISION_VERSION = "0.25.0"
+PILLOW_VERSION = "12.1.0"
+AUDIO_SEPARATOR_VERSION = "0.41.1"
+ONNXRUNTIME_GPU_VERSION = "1.24.1"
+ONNX_VERSION = "1.20.1"
+PYINSTALLER_VERSION = "6.18.0"
+
 # PyInstaller spec file content
 SPEC_CONTENT = '''# -*- mode: python ; coding: utf-8 -*-
 import sys
@@ -189,28 +199,28 @@ def install_dependencies():
     """Install dependencies (ONNX Runtime + PyTorch CPU)"""
     pip = str(get_pip())
 
-    print("Installing Pillow (required by torchvision)...")
-    if not run_command([pip, "install", "pillow"]):
+    print(f"Installing Pillow=={PILLOW_VERSION} (required by torchvision)...")
+    if not run_command([pip, "install", f"pillow=={PILLOW_VERSION}"]):
         print("Warning: Pillow install failed")
         return False
 
-    print("Installing PyTorch (CPU only, required by audio-separator)...")
-    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+    print(f"Installing PyTorch=={TORCH_VERSION} (CPU only, required by audio-separator)...")
+    if not run_command([pip, "install", f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", "--index-url", "https://download.pytorch.org/whl/cpu"]):
         print("Warning: PyTorch CPU install failed")
         return False
 
-    print("Installing audio-separator...")
-    if not run_command([pip, "install", "audio-separator", "onnx"]):
+    print(f"Installing audio-separator=={AUDIO_SEPARATOR_VERSION}...")
+    if not run_command([pip, "install", f"audio-separator=={AUDIO_SEPARATOR_VERSION}", f"onnx=={ONNX_VERSION}"]):
         return False
 
-    print("Installing ONNX Runtime GPU (override CPU version)...")
-    if not run_command([pip, "install", "onnxruntime-gpu"]):
+    print(f"Installing ONNX Runtime GPU=={ONNXRUNTIME_GPU_VERSION} (override CPU version)...")
+    if not run_command([pip, "install", f"onnxruntime-gpu=={ONNXRUNTIME_GPU_VERSION}"]):
         print("Warning: ONNX Runtime GPU install failed, trying CPU version...")
         if not run_command([pip, "install", "onnxruntime"]):
             return False
 
-    print("Installing PyInstaller...")
-    if not run_command([pip, "install", "pyinstaller"]):
+    print(f"Installing PyInstaller=={PYINSTALLER_VERSION}...")
+    if not run_command([pip, "install", f"pyinstaller=={PYINSTALLER_VERSION}"]):
         return False
 
     return True

@@ -18,6 +18,11 @@ $DownloadsDir = Join-Path $ToolsDir "downloads"
 $VenvDir = Join-Path $ToolsDir "venv"
 $FFmpegDir = Join-Path $ProjectRoot "ffmpeg"  # 内置工具目录
 
+# ── Pinned dependency versions ──
+# Keep in sync with .github/workflows/build.yml and build_audio_separator.py
+$PinnedAudioSeparatorVersion = "0.41.1"
+$PinnedOnnxruntimeGpuVersion = "1.24.1"
+
 # Create directories
 if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null }
 if (-not (Test-Path $DownloadsDir)) { New-Item -ItemType Directory -Path $DownloadsDir -Force | Out-Null }
@@ -253,7 +258,7 @@ if ($VenvOK -and -not $AudioSeparatorOK) {
 
         # Install audio-separator
         Write-Host "  Installing audio-separator (this may take a while)..." -ForegroundColor Gray
-        & $venvPip install audio-separator
+        & $venvPip install audio-separator==$PinnedAudioSeparatorVersion
 
         # Verify installation
         $separatorCheck = & $venvPython -c "import audio_separator; print('ok')" 2>$null
@@ -293,7 +298,7 @@ if ($VenvOK -and $AudioSeparatorOK -and -not $OnnxGpuOK) {
 
             # Install GPU version
             Write-Host "  Installing ONNX Runtime GPU..." -ForegroundColor Gray
-            & $venvPip install onnxruntime-gpu
+            & $venvPip install onnxruntime-gpu==$PinnedOnnxruntimeGpuVersion
 
             # Verify
             $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null

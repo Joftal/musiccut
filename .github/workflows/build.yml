@@ -20,6 +20,19 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # ── Pinned dependency versions ──
+  # Change these to upgrade dependencies in a controlled manner
+  NODE_VERSION: '22.13.1'
+  PYTHON_VERSION: '3.12.9'
+  FFMPEG_VERSION: '7.1.1'
+  TORCH_VERSION: '2.10.0'
+  TORCHVISION_VERSION: '0.25.0'
+  PILLOW_VERSION: '12.1.0'
+  AUDIO_SEPARATOR_VERSION: '0.41.1'
+  ONNXRUNTIME_GPU_VERSION: '1.24.1'
+  ONNX_VERSION: '1.20.1'
+  PYINSTALLER_VERSION: '6.18.0'
+  FPCALC_VERSION: '1.6.0'
 
 jobs:
   build:
@@ -102,7 +115,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -119,11 +132,12 @@ jobs:
       - name: Download FFmpeg
         shell: pwsh
         run: |
-          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z"
+          $ffmpegVersion = "${{ env.FFMPEG_VERSION }}"
+          $ffmpegUrl = "https://github.com/GyanD/codexffmpeg/releases/download/${ffmpegVersion}/ffmpeg-${ffmpegVersion}-full_build.7z"
           $ffmpegArchive = "ffmpeg.7z"
           $ffmpegTemp = "ffmpeg-temp"
 
-          Write-Host "Downloading FFmpeg..."
+          Write-Host "Downloading FFmpeg ${ffmpegVersion}..."
           Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegArchive
 
           Write-Host "Extracting FFmpeg (full)..."
@@ -151,7 +165,8 @@ jobs:
       - name: Download fpcalc (Chromaprint)
         shell: pwsh
         run: |
-          $fpcalcUrl = "https://github.com/acoustid/chromaprint/releases/download/v1.6.0/chromaprint-fpcalc-1.6.0-windows-x86_64.zip"
+          $fpcalcVersion = "${{ env.FPCALC_VERSION }}"
+          $fpcalcUrl = "https://github.com/acoustid/chromaprint/releases/download/v${fpcalcVersion}/chromaprint-fpcalc-${fpcalcVersion}-windows-x86_64.zip"
           $fpcalcZip = "fpcalc.zip"
 
           Write-Host "Downloading fpcalc..."
@@ -174,7 +189,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12.9'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Build audio-separator package
         shell: pwsh
@@ -183,16 +198,16 @@ jobs:
           python -m venv tools\venv
 
           Write-Host "Installing Pillow (required by torchvision)..."
-          .\tools\venv\Scripts\pip.exe install pillow
+          .\tools\venv\Scripts\pip.exe install pillow==${{ env.PILLOW_VERSION }}
 
           Write-Host "Installing PyTorch (CPU only, required by audio-separator)..."
-          .\tools\venv\Scripts\pip.exe install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          .\tools\venv\Scripts\pip.exe install torch==${{ env.TORCH_VERSION }} torchvision==${{ env.TORCHVISION_VERSION }} --index-url https://download.pytorch.org/whl/cpu
 
           Write-Host "Installing audio-separator and PyInstaller..."
-          .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller onnx
+          .\tools\venv\Scripts\pip.exe install audio-separator==${{ env.AUDIO_SEPARATOR_VERSION }} pyinstaller==${{ env.PYINSTALLER_VERSION }} onnx==${{ env.ONNX_VERSION }}
 
           Write-Host "Installing ONNX Runtime GPU (override CPU version from audio-separator)..."
-          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
+          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu==${{ env.ONNXRUNTIME_GPU_VERSION }}
 
           Write-Host "Building audio-separator executable..."
           .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
