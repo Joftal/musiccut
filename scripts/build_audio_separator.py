@@ -35,9 +35,12 @@ datas += collect_data_files('torchvision')
 datas += collect_data_files('samplerate')
 datas += collect_data_files('resampy')
 datas += collect_data_files('librosa')
+datas += collect_data_files('PIL')
+datas += collect_data_files('onnx')
 
 # Collect all submodules
 hiddenimports = []
+hiddenimports += collect_submodules('PIL')
 hiddenimports += collect_submodules('audio_separator')
 hiddenimports += collect_submodules('onnxruntime')
 hiddenimports += collect_submodules('torch')
@@ -45,6 +48,7 @@ hiddenimports += collect_submodules('onnx2torch')
 hiddenimports += collect_submodules('torchvision')
 hiddenimports += collect_submodules('samplerate')
 hiddenimports += collect_submodules('resampy')
+hiddenimports += collect_submodules('onnx')
 hiddenimports += [
     'numpy',
     'scipy',
@@ -60,6 +64,12 @@ hiddenimports += [
     'tqdm',
     '_cffi_backend',
     'audio_separator.utils.cli',
+    'requests',
+    'yaml',
+    'packaging',
+    'packaging.version',
+    'packaging.specifiers',
+    'packaging.requirements',
 ]
 
 a = Analysis(
@@ -74,7 +84,6 @@ a = Analysis(
     excludes=[
         'matplotlib',
         'tkinter',
-        'PIL',
         'IPython',
         'jupyter',
         'torchaudio',
@@ -180,6 +189,11 @@ def install_dependencies():
     """Install dependencies (ONNX Runtime + PyTorch CPU)"""
     pip = str(get_pip())
 
+    print("Installing Pillow (required by torchvision)...")
+    if not run_command([pip, "install", "pillow"]):
+        print("Warning: Pillow install failed")
+        return False
+
     print("Installing PyTorch (CPU only, required by audio-separator)...")
     if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
         print("Warning: PyTorch CPU install failed")
@@ -192,7 +206,7 @@ def install_dependencies():
             return False
 
     print("Installing audio-separator...")
-    if not run_command([pip, "install", "audio-separator"]):
+    if not run_command([pip, "install", "audio-separator", "onnx"]):
         return False
 
     print("Installing PyInstaller...")

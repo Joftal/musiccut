@@ -41,6 +41,11 @@ ffmpeg/*.exe
 # Python virtual environment
 tools/venv/
 
+# PyInstaller build artifacts
+scripts/audio_separator.spec
+scripts/audio_separator_entry.py
+scripts/build/
+
 # AI models (auto-downloaded)
 models/audio-separator/
 

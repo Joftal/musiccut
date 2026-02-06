@@ -173,6 +173,9 @@ jobs:
           Write-Host "Creating Python virtual environment..."
           python -m venv tools\venv
 
+          Write-Host "Installing Pillow (required by torchvision)..."
+          .\tools\venv\Scripts\pip.exe install pillow
+
           Write-Host "Installing PyTorch (CPU only, required by audio-separator)..."
           .\tools\venv\Scripts\pip.exe install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
@@ -180,7 +183,7 @@ jobs:
           .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
 
           Write-Host "Installing audio-separator and PyInstaller..."
-          .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller
+          .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller onnx
 
           Write-Host "Building audio-separator executable..."
           .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
