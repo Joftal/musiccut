@@ -320,6 +320,153 @@ pub fn generate_preview_video(
     }
 }
 
+/// 无损剪辑单个片段（LosslessCut 风格）
+/// 使用 -c copy 直接复制流，速度极快但只能在关键帧处精确切割
+/// 返回 Ok(true) 表示成功，Ok(false) 表示需要回退到重编码
+fn lossless_cut_segment(
+    input_path: &str,
+    output_path: &str,
+    start: f64,
+    end: f64,
+    cancel_flags: &[&AtomicBool],
+    project_id: &str,
+) -> AppResult<bool> {
+    info!(
+        "[FFMPEG] 尝试无损剪辑片段 {:.2}s - {:.2}s",
+        start, end
+    );
+
+    // 检查任一取消标志
+    let is_cancelled = || cancel_flags.iter().any(|f| f.load(Ordering::SeqCst));
+
+    if is_cancelled() {
+        return Err(AppError::Cancelled);
+    }
+
+    let ffmpeg_path = resolve_tool_path("ffmpeg");
+
+    // 判断输出格式
+    let is_mp4 = output_path.to_lowercase().ends_with(".mp4")
+        || output_path.to_lowercase().ends_with(".m4v")
+        || output_path.to_lowercase().ends_with(".mov");
+
+    // LosslessCut 风格的无损剪辑参数
+    // -ss 在 -i 之前：快速定位（不精确但快）
+    // -c copy：直接复制流，不重新编码
+    // -avoid_negative_ts make_zero：处理负时间戳
+    let mut args = vec![
+        "-v".to_string(), "warning".to_string(),
+        "-ss".to_string(), start.to_string(),
+        "-i".to_string(), input_path.to_string(),
+        "-t".to_string(), (end - start).to_string(),
+        "-c".to_string(), "copy".to_string(),  // 关键：直接复制，不重编码
+        "-avoid_negative_ts".to_string(), "make_zero".to_string(),
+        "-map".to_string(), "0".to_string(),  // 复制所有流
+    ];
+
+    // MP4 格式添加 faststart
+    if is_mp4 {
+        args.push("-movflags".to_string());
+        args.push("+faststart".to_string());
+    }
+
+    args.push("-y".to_string());
+    args.push(output_path.to_string());
+
+    // 使用 spawn 启动进程
+    let child = hidden_command(&ffmpeg_path)
+        .args(&args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| AppError::FFmpeg(format!("ffmpeg 执行失败: {}", e)))?;
+
+    // 注册子进程句柄
+    let child_handle = crate::commands::video::register_child_process(project_id, child);
+
+    // 轮询检查进程状态和取消标志
+    loop {
+        if is_cancelled() {
+            if let Ok(mut guard) = child_handle.lock() {
+                if let Some(ref mut child) = *guard {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            let _ = fs::remove_file(output_path);
+            info!("[FFMPEG] 无损剪辑被取消: {:.2}s - {:.2}s", start, end);
+            return Err(AppError::Cancelled);
+        }
+
+        let try_wait_result = {
+            let mut guard = child_handle.lock().unwrap();
+            if let Some(ref mut child) = *guard {
+                child.try_wait()
+            } else {
+                return Err(AppError::Cancelled);
+            }
+        };
+
+        match try_wait_result {
+            Ok(Some(status)) => {
+                if status.success() {
+                    // 验证输出文件是否有效（大小 > 0）
+                    if let Ok(metadata) = fs::metadata(output_path) {
+                        if metadata.len() > 0 {
+                            info!(
+                                "[FFMPEG] 无损剪辑成功 {:.2}s - {:.2}s -> {}",
+                                start, end, output_path
+                            );
+                            return Ok(true);
+                        }
+                    }
+                    // 文件无效，需要回退
+                    let _ = fs::remove_file(output_path);
+                    info!("[FFMPEG] 无损剪辑输出无效，需要回退到重编码");
+                    return Ok(false);
+                } else {
+                    // 无损剪辑失败，需要回退到重编码
+                    let _ = fs::remove_file(output_path);
+                    info!("[FFMPEG] 无损剪辑失败，需要回退到重编码");
+                    return Ok(false);
+                }
+            }
+            Ok(None) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = fs::remove_file(output_path);
+                return Err(AppError::FFmpeg(format!("检查进程状态失败: {}", e)));
+            }
+        }
+    }
+}
+
+/// 智能剪辑单个片段（优先无损，失败回退重编码）
+fn smart_cut_segment(
+    input_path: &str,
+    output_path: &str,
+    start: f64,
+    end: f64,
+    cancel_flags: &[&AtomicBool],
+    project_id: &str,
+    prefer_lossless: bool,
+) -> AppResult<()> {
+    if prefer_lossless {
+        // 先尝试无损剪辑
+        match lossless_cut_segment(input_path, output_path, start, end, cancel_flags, project_id)? {
+            true => return Ok(()),  // 无损剪辑成功
+            false => {
+                info!("[FFMPEG] 无损剪辑失败，回退到重编码模式");
+                // 回退到重编码
+            }
+        }
+    }
+
+    // 重编码模式
+    encode_segment(input_path, output_path, start, end, cancel_flags, project_id)
+}
+
 /// 重编码导出单个片段
 /// 确保第一帧是关键帧，播放时不会卡顿
 /// cancel_flags: 支持多个取消标志，任一为 true 则取消
@@ -670,7 +817,7 @@ pub fn extract_thumbnail(
     Ok(())
 }
 
-/// 剪辑视频片段（重编码模式：分段导出后合并）
+/// 剪辑视频片段（智能模式：优先无损剪辑，失败回退重编码）
 pub fn cut_video_segments(
     input_path: &str,
     output_path: &str,
@@ -700,8 +847,8 @@ pub fn cut_video_segments(
         return Err(AppError::Video("没有需要保留的片段".to_string()));
     }
 
-    // 使用重编码分段合并
-    reencode_concat_segments(input_path, output_path, &keep_segments, progress_callback, cancel_flag, project_id)
+    // 使用智能分段合并（优先无损，失败回退重编码）
+    smart_concat_segments(input_path, output_path, &keep_segments, progress_callback, cancel_flag, project_id, true)
 }
 
 /// 计算反向片段（移除匹配片段后的剩余部分）
@@ -802,55 +949,118 @@ fn log_segment_filter_stats(segments: &[Segment], valid_count: usize) {
     );
 }
 
-/// 重编码分段合并（解决关键帧对齐问题）
-/// 1. 每个片段重编码导出（确保第一帧是关键帧）
-/// 2. 使用 concat demuxer 合并
-fn reencode_concat_segments(
+/// 智能分段合并（优先无损剪辑，失败回退重编码）
+/// 策略：先尝试全部无损剪辑，任一失败则全部重编码（保证格式一致）
+/// 1. 尝试对所有片段进行无损剪辑
+/// 2. 如果任一片段无损失败，清理并全部重编码
+/// 3. 使用 concat demuxer 合并
+fn smart_concat_segments(
     input_path: &str,
     output_path: &str,
     segments: &[(f64, f64)],
     progress_callback: Option<ProgressCallback>,
     cancel_flag: Arc<AtomicBool>,
     project_id: &str,
+    prefer_lossless: bool,
 ) -> AppResult<()> {
-    info!("[FFMPEG] 开始重编码分段合并，共 {} 个片段", segments.len());
+    let mode_str = if prefer_lossless { "智能（优先无损）" } else { "重编码" };
+    info!("[FFMPEG] 开始{}分段合并，共 {} 个片段", mode_str, segments.len());
 
     // 创建临时目录
     let temp_dir = tempfile::tempdir()?;
     let temp_path = temp_dir.path();
 
     let total_segments = segments.len();
-    let mut segment_files: Vec<String> = Vec::new();
 
-    // 步骤1：重编码导出每个片段
-    for (i, (start, end)) in segments.iter().enumerate() {
-        if cancel_flag.load(Ordering::SeqCst) {
-            info!("[FFMPEG] 重编码分段合并被取消（片段导出阶段）");
-            return Err(AppError::Cancelled);
+    // 获取源文件扩展名
+    let source_ext = Path::new(input_path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mp4");
+
+    let mut segment_files: Vec<String> = Vec::new();
+    let mut use_lossless = prefer_lossless;
+
+    // 步骤1：尝试无损剪辑所有片段
+    if use_lossless {
+        info!("[FFMPEG] 尝试无损剪辑所有片段...");
+        let mut lossless_success = true;
+
+        for (i, (start, end)) in segments.iter().enumerate() {
+            if cancel_flag.load(Ordering::SeqCst) {
+                info!("[FFMPEG] 分段合并被取消（无损剪辑阶段）");
+                return Err(AppError::Cancelled);
+            }
+
+            // 无损模式使用源文件扩展名
+            let segment_file = temp_path.join(format!("segment_{:04}.{}", i, source_ext));
+            let segment_path = segment_file.to_string_lossy().to_string();
+
+            info!("[FFMPEG] 无损剪辑片段 {}/{}: {:.2}s - {:.2}s", i + 1, total_segments, start, end);
+
+            // 尝试无损剪辑
+            match lossless_cut_segment(input_path, &segment_path, *start, *end, &[&cancel_flag], project_id)? {
+                true => {
+                    segment_files.push(segment_path);
+                    // 更新进度（无损成功时：片段导出占 95%，合并占 5%）
+                    if let Some(ref cb) = progress_callback {
+                        cb(((i + 1) as f32 / total_segments as f32) * 0.95);
+                    }
+                }
+                false => {
+                    // 无损失败，需要回退到全部重编码
+                    info!("[FFMPEG] 片段 {} 无损剪辑失败，将全部改用重编码", i + 1);
+                    lossless_success = false;
+                    break;
+                }
+            }
         }
 
-        let segment_file = temp_path.join(format!("segment_{:04}.ts", i));
-        let segment_path = segment_file.to_string_lossy().to_string();
+        if !lossless_success {
+            // 清理已导出的无损片段
+            for path in &segment_files {
+                let _ = fs::remove_file(path);
+            }
+            segment_files.clear();
+            use_lossless = false;
+            info!("[FFMPEG] 回退到重编码模式");
+        }
+    }
 
-        info!("[FFMPEG] 重编码导出片段 {}/{}: {:.2}s - {:.2}s", i + 1, total_segments, start, end);
+    // 步骤2：如果无损失败或不使用无损，则重编码所有片段
+    if !use_lossless {
+        info!("[FFMPEG] 使用重编码模式导出所有片段...");
 
-        // 重编码导出片段
-        encode_segment(input_path, &segment_path, *start, *end, &[&cancel_flag], project_id)?;
+        for (i, (start, end)) in segments.iter().enumerate() {
+            if cancel_flag.load(Ordering::SeqCst) {
+                info!("[FFMPEG] 分段合并被取消（重编码阶段）");
+                return Err(AppError::Cancelled);
+            }
 
-        segment_files.push(segment_path);
+            // 重编码模式使用 .ts 格式（更适合拼接）
+            let segment_file = temp_path.join(format!("segment_{:04}.ts", i));
+            let segment_path = segment_file.to_string_lossy().to_string();
 
-        // 更新进度（导出阶段占 95%，合并很快直接到 100%）
-        if let Some(ref cb) = progress_callback {
-            cb(((i + 1) as f32 / total_segments as f32) * 0.95);
+            info!("[FFMPEG] 重编码片段 {}/{}: {:.2}s - {:.2}s", i + 1, total_segments, start, end);
+
+            // 重编码导出
+            encode_segment(input_path, &segment_path, *start, *end, &[&cancel_flag], project_id)?;
+
+            segment_files.push(segment_path);
+
+            // 更新进度（回退重编码时：从 0% 开始，片段导出占 95%，合并占 5%）
+            if let Some(ref cb) = progress_callback {
+                cb(((i + 1) as f32 / total_segments as f32) * 0.95);
+            }
         }
     }
 
     if cancel_flag.load(Ordering::SeqCst) {
-        info!("[FFMPEG] 重编码分段合并被取消（合并前）");
+        info!("[FFMPEG] 分段合并被取消（合并前）");
         return Err(AppError::Cancelled);
     }
 
-    // 步骤2：创建 concat 列表文件
+    // 步骤3：创建 concat 列表文件
     let concat_list_path = temp_path.join("concat_list.txt");
     let mut concat_file = fs::File::create(&concat_list_path)?;
 
@@ -861,9 +1071,9 @@ fn reencode_concat_segments(
     }
     concat_file.flush()?;
 
-    info!("[FFMPEG] 开始合并 {} 个片段到: {}", segment_files.len(), output_path);
+    info!("[FFMPEG] 开始合并 {} 个片段到: {}（{}模式）", segment_files.len(), output_path, if use_lossless { "无损" } else { "重编码" });
 
-    // 步骤3：使用 concat demuxer 合并（支持取消）
+    // 步骤4：使用 concat demuxer 合并（支持取消）
     let ffmpeg_path = resolve_tool_path("ffmpeg");
     let concat_list_str = concat_list_path.to_string_lossy().to_string();
     let merge_start_time = std::time::Instant::now();
@@ -889,7 +1099,7 @@ fn reencode_concat_segments(
             let _ = child.wait();
             // 清理未完成的输出文件
             let _ = fs::remove_file(output_path);
-            info!("[FFMPEG] 重编码分段合并被取消（合并阶段）");
+            info!("[FFMPEG] 分段合并被取消（合并阶段）");
             return Err(AppError::Cancelled);
         }
 
@@ -931,15 +1141,17 @@ fn reencode_concat_segments(
     }
 
     let merge_elapsed = merge_start_time.elapsed();
+    let final_mode = if use_lossless { "无损" } else { "重编码" };
     info!(
-        "[FFMPEG] 重编码合并完成: {}，合并耗时: {:.2}s",
+        "[FFMPEG] 分段合并完成（{}模式）: {}，合并耗时: {:.2}s",
+        final_mode,
         output_path,
         merge_elapsed.as_secs_f64()
     );
     Ok(())
 }
 
-/// 导出视频（重编码模式）
+/// 导出视频（智能模式：优先无损剪辑，失败回退重编码）
 pub fn export_video(
     input_path: &str,
     output_path: &str,
@@ -948,13 +1160,29 @@ pub fn export_video(
     cancel_flag: Arc<AtomicBool>,
     project_id: &str,
 ) -> AppResult<()> {
+    // 默认使用无损模式
+    export_video_with_mode(input_path, output_path, segments, progress_callback, cancel_flag, project_id, true)
+}
+
+/// 导出视频（可选模式）
+/// prefer_lossless: true 优先无损剪辑（快速），false 强制重编码（精确）
+pub fn export_video_with_mode(
+    input_path: &str,
+    output_path: &str,
+    segments: &[Segment],
+    progress_callback: Option<ProgressCallback>,
+    cancel_flag: Arc<AtomicBool>,
+    project_id: &str,
+    prefer_lossless: bool,
+) -> AppResult<()> {
     // 检查取消标志
     if cancel_flag.load(Ordering::SeqCst) {
         info!("[FFMPEG] 导出视频被取消（启动前）");
         return Err(AppError::Cancelled);
     }
 
-    info!("[FFMPEG] 开始导出视频（合并模式）");
+    let mode_str = if prefer_lossless { "智能（优先无损）" } else { "重编码" };
+    info!("[FFMPEG] 开始导出视频（{}模式）", mode_str);
     info!("[FFMPEG] 输入: {}", input_path);
     info!("[FFMPEG] 输出: {}", output_path);
 
@@ -986,8 +1214,8 @@ pub fn export_video(
         fs::create_dir_all(parent)?;
     }
 
-    // 使用重编码分段合并
-    let result = reencode_concat_segments(input_path, output_path, &merged_segments, progress_callback, cancel_flag, project_id);
+    // 使用智能分段合并（优先无损，失败回退重编码）
+    let result = smart_concat_segments(input_path, output_path, &merged_segments, progress_callback, cancel_flag, project_id, prefer_lossless);
 
     if result.is_ok() {
         info!("[FFMPEG] 导出视频完成: {}", output_path);
@@ -996,7 +1224,7 @@ pub fn export_video(
     result
 }
 
-/// 分别导出视频片段（每个片段单独导出为独立文件，重编码模式，并行处理）
+/// 分别导出视频片段（每个片段单独导出为独立文件，智能模式，并行处理）
 pub fn export_video_separately(
     input_path: &str,
     output_dir: &str,
@@ -1004,6 +1232,21 @@ pub fn export_video_separately(
     progress_callback: Option<ProgressCallback>,
     cancel_flag: Arc<AtomicBool>,
     project_id: &str,
+) -> AppResult<Vec<String>> {
+    // 默认使用无损模式
+    export_video_separately_with_mode(input_path, output_dir, segments, progress_callback, cancel_flag, project_id, true)
+}
+
+/// 分别导出视频片段（可选模式）
+/// prefer_lossless: true 优先无损剪辑（快速），false 强制重编码（精确）
+pub fn export_video_separately_with_mode(
+    input_path: &str,
+    output_dir: &str,
+    segments: &[Segment],
+    progress_callback: Option<ProgressCallback>,
+    cancel_flag: Arc<AtomicBool>,
+    project_id: &str,
+    prefer_lossless: bool,
 ) -> AppResult<Vec<String>> {
     // 检查取消标志
     if cancel_flag.load(Ordering::SeqCst) {
@@ -1030,13 +1273,19 @@ pub fn export_video_separately(
 
     let total_segments = export_segments.len();
 
-    // 根据 CPU 核心数决定并行度（每个 ffmpeg 进程使用多线程，所以并行数不宜过多）
+    // 根据 CPU 核心数决定并行度
+    // 无损模式可以更多并行（因为不需要编码），重编码模式限制并行数
     let num_cpus = num_cpus::get();
-    let parallel_count = (num_cpus / 2).max(1).min(4);  // 最多 4 个并行任务
+    let parallel_count = if prefer_lossless {
+        (num_cpus).max(1).min(8)  // 无损模式最多 8 个并行任务
+    } else {
+        (num_cpus / 2).max(1).min(4)  // 重编码模式最多 4 个并行任务
+    };
 
+    let mode_str = if prefer_lossless { "智能（优先无损）" } else { "重编码" };
     info!(
-        "[FFMPEG] 开始并行导出 {} 个片段（重编码模式，{} 个并行任务，{} 核 CPU）",
-        total_segments, parallel_count, num_cpus
+        "[FFMPEG] 开始并行导出 {} 个片段（{}模式，{} 个并行任务，{} 核 CPU）",
+        total_segments, mode_str, parallel_count, num_cpus
     );
 
     // 确保输出目录存在
@@ -1134,15 +1383,15 @@ pub fn export_video_separately(
                 }
 
                 info!(
-                    "[FFMPEG] 重编码导出片段 {}/{}: {:.2}s - {:.2}s",
+                    "[FFMPEG] 导出片段 {}/{}: {:.2}s - {:.2}s",
                     i + 1,
                     total_segments,
                     start_time,
                     end_time
                 );
 
-                // 重编码导出单个片段（使用修正后的时间范围，同时传入用户取消标志和内部取消标志）
-                match encode_segment(input_path, output_path_str, *start_time, *end_time, &[&cancel_flag, &internal_cancel], project_id) {
+                // 智能剪辑导出单个片段（优先无损，失败回退重编码）
+                match smart_cut_segment(input_path, output_path_str, *start_time, *end_time, &[&cancel_flag, &internal_cancel], project_id, prefer_lossless) {
                     Ok(()) => {
                         // 更新进度（确保单调递增）
                         let completed = completed_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1218,7 +1467,7 @@ pub fn export_video_separately(
     Ok(output_files)
 }
 
-/// 导出自定义剪辑片段（指定时间范围）
+/// 导出自定义剪辑片段（智能模式：优先无损剪辑，失败回退重编码）
 pub fn export_custom_segment(
     input_path: &str,
     output_path: &str,
@@ -1228,6 +1477,22 @@ pub fn export_custom_segment(
     cancel_flag: Arc<AtomicBool>,
     project_id: &str,
 ) -> AppResult<()> {
+    // 默认使用无损模式
+    export_custom_segment_with_mode(input_path, output_path, start_time, end_time, progress_callback, cancel_flag, project_id, true)
+}
+
+/// 导出自定义剪辑片段（可选模式）
+/// prefer_lossless: true 优先无损剪辑（快速），false 强制重编码（精确）
+pub fn export_custom_segment_with_mode(
+    input_path: &str,
+    output_path: &str,
+    start_time: f64,
+    end_time: f64,
+    progress_callback: Option<ProgressCallback>,
+    cancel_flag: Arc<AtomicBool>,
+    project_id: &str,
+    prefer_lossless: bool,
+) -> AppResult<()> {
     // 检查取消标志
     if cancel_flag.load(Ordering::SeqCst) {
         info!("[FFMPEG] 自定义剪辑导出被取消（启动前）");
@@ -1235,9 +1500,10 @@ pub fn export_custom_segment(
     }
 
     let duration = end_time - start_time;
+    let mode_str = if prefer_lossless { "智能（优先无损）" } else { "重编码" };
     info!(
-        "[FFMPEG] 开始导出自定义剪辑: {:.3}s - {:.3}s (时长: {:.3}s)",
-        start_time, end_time, duration
+        "[FFMPEG] 开始导出自定义剪辑（{}模式）: {:.3}s - {:.3}s (时长: {:.3}s)",
+        mode_str, start_time, end_time, duration
     );
 
     // 确保输出目录存在
@@ -1245,6 +1511,46 @@ pub fn export_custom_segment(
         fs::create_dir_all(parent)?;
     }
 
+    // 尝试无损剪辑
+    if prefer_lossless {
+        if let Some(ref cb) = progress_callback {
+            cb(0.1);  // 开始无损尝试
+        }
+
+        match lossless_cut_segment(input_path, output_path, start_time, end_time, &[&cancel_flag], project_id)? {
+            true => {
+                // 无损剪辑成功
+                info!("[FFMPEG] 自定义剪辑导出完成（无损模式）: {}", output_path);
+                if let Some(ref cb) = progress_callback {
+                    cb(1.0);
+                }
+                return Ok(());
+            }
+            false => {
+                // 无损失败，回退到重编码
+                info!("[FFMPEG] 无损剪辑失败，回退到重编码模式");
+                if let Some(ref cb) = progress_callback {
+                    cb(0.2);  // 开始重编码
+                }
+            }
+        }
+    }
+
+    // 重编码模式（带进度报告）
+    export_custom_segment_reencode(input_path, output_path, start_time, end_time, duration, progress_callback, cancel_flag, project_id)
+}
+
+/// 重编码导出自定义剪辑片段（内部函数，带进度报告）
+fn export_custom_segment_reencode(
+    input_path: &str,
+    output_path: &str,
+    start_time: f64,
+    _end_time: f64,
+    duration: f64,
+    progress_callback: Option<ProgressCallback>,
+    cancel_flag: Arc<AtomicBool>,
+    project_id: &str,
+) -> AppResult<()> {
     let ffmpeg_path = resolve_tool_path("ffmpeg");
 
     // 判断输出格式，决定是否添加 movflags
@@ -1351,7 +1657,7 @@ pub fn export_custom_segment(
         match try_wait_result {
             Ok(Some(status)) => {
                 if status.success() {
-                    info!("[FFMPEG] 自定义剪辑导出完成: {}", output_path);
+                    info!("[FFMPEG] 自定义剪辑导出完成（重编码模式）: {}", output_path);
                     if let Some(ref cb) = progress_callback {
                         cb(1.0);
                     }
