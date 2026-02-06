@@ -17,6 +17,8 @@ env:
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -295,7 +297,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
 
     steps:
       - name: Download artifacts
@@ -319,15 +322,20 @@ jobs:
       - name: List downloaded artifacts
         run: |
           echo "=== Downloaded Artifacts ==="
+          echo "Full directory structure:"
+          find artifacts -type f
+          echo ""
+          echo "7z files:"
           find artifacts -type f -name "*.7z" | while read f; do
             size=$(du -h "$f" | cut -f1)
-            echo "$(basename $f) - $size"
+            echo "$f - $size"
           done
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          name: MusicCut ${{ github.ref_name }}
+          tag_name: v${{ needs.build.outputs.version }}
+          name: MusicCut v${{ needs.build.outputs.version }}
           body: |
             ## 更新日志
 
