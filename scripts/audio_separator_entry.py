@@ -20,5 +20,5 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--check-gpu':
         check_gpu()
         sys.exit(0)
-    from audio_separator.separator import main
+    from audio_separator.utils.cli import main
     sys.exit(main())

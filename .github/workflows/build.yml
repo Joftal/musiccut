@@ -42,14 +42,21 @@ jobs:
         id: changelog
         shell: bash
         run: |
-          # 获取上一个 tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          # 找到最近的 tag（不含当前 tag）
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # tag 推送：找上一个 tag
+            CURRENT_TAG=${GITHUB_REF#refs/tags/}
+            PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          else
+            # 手动触发：找最近的 tag
+            PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          fi
+
+          echo "Previous tag: ${PREV_TAG:-none}"
 
           if [ -z "$PREV_TAG" ]; then
-            # 如果没有上一个 tag，获取所有提交
             COMMITS=$(git log --pretty=format:"- %s" -20)
           else
-            # 获取两个 tag 之间的提交
             COMMITS=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD)
           fi
 
