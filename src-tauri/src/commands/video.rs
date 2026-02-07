@@ -922,7 +922,37 @@ pub fn preload_gpu_capabilities() {
 }
 
 /// 检测 ONNX Runtime GPU 是否可用
+/// 通过打包的 audio-separator 检测，不依赖系统 Python 环境
 fn check_onnx_gpu() -> bool {
+    let separator_path = separator::resolve_separator_path();
+    info!("使用 audio-separator 检测 GPU: {}", separator_path);
+
+    let output = hidden_command(&separator_path)
+        .args(["-e"])
+        .output();
+
+    match output {
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // audio-separator -e 在 stderr 输出环境信息
+            // 检查是否包含 GPU 加速相关的关键字
+            let has_cuda = stderr.contains("CUDAExecutionProvider");
+            let has_dml = stderr.contains("DmlExecutionProvider");
+            let has_tensorrt = stderr.contains("TensorrtExecutionProvider");
+            let result = has_cuda || has_dml || has_tensorrt;
+            info!("audio-separator GPU 检测: CUDA={}, DML={}, TensorRT={}", has_cuda, has_dml, has_tensorrt);
+            result
+        }
+        Err(e) => {
+            info!("audio-separator 检测失败，回退到系统 Python 检测: {}", e);
+            // 回退：尝试系统 Python（兼容开发环境）
+            check_onnx_gpu_via_python()
+        }
+    }
+}
+
+/// 通过系统 Python 检测 ONNX Runtime GPU（开发环境回退方案）
+fn check_onnx_gpu_via_python() -> bool {
     let output = hidden_command("python")
         .args([
             "-c",
