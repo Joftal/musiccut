@@ -628,15 +628,45 @@ const Editor: React.FC = () => {
         throw new Error(t('editor.toast.processingFailed'));
       }
 
-      // 1. 提取音频
-      const audioPath = await join(tempDir, `${projectId}_audio.wav`);
-      await extractAudio(audioPath, projectId, videoPath);
+      // 检查缓存状态（失败则回退到完整流程）
+      let cacheStatus: { audio_valid: boolean; audio_path: string | null; separation_valid: boolean; vocals_path: string | null; accompaniment_path: string | null } = {
+        audio_valid: false, audio_path: null, separation_valid: false, vocals_path: null, accompaniment_path: null,
+      };
+      try {
+        cacheStatus = await api.checkCacheStatus(projectId, videoPath, selectedModelId);
+        console.log('[Editor] Cache status:', cacheStatus);
+      } catch (e) {
+        console.warn('[Editor] Cache check failed, running full pipeline:', e);
+      }
 
-      // 2. 人声分离
-      const outputDir = await join(tempDir, `${projectId}_separated`);
-      const { accompanimentPath } = await separateVocals(outputDir, projectId, audioPath, acceleration);
+      // 1. 提取音频（有缓存则跳过）
+      let audioPath: string;
+      if (cacheStatus.audio_valid && cacheStatus.audio_path) {
+        console.log('[Editor] Skipping audio extraction, using cached:', cacheStatus.audio_path);
+        audioPath = cacheStatus.audio_path;
+        useEditorStore.getState().setAudioPath(audioPath);
+      } else {
+        console.log('[Editor] Audio cache miss, running extraction');
+        audioPath = await join(tempDir, `${projectId}_audio.wav`);
+        await extractAudio(audioPath, projectId, videoPath);
+      }
 
-      // 3. 匹配片段（传递自定义音乐库 ID）
+      // 2. 人声分离（有缓存则跳过）
+      let accompanimentPath: string;
+      if (cacheStatus.separation_valid && cacheStatus.accompaniment_path && cacheStatus.vocals_path) {
+        console.log('[Editor] Skipping vocal separation, using cached:', cacheStatus.accompaniment_path);
+        accompanimentPath = cacheStatus.accompaniment_path;
+        const store = useEditorStore.getState();
+        store.setVocalsPath(cacheStatus.vocals_path);
+        store.setAccompanimentPath(accompanimentPath);
+      } else {
+        console.log('[Editor] Separation cache miss, running vocal separation');
+        const outputDir = await join(tempDir, `${projectId}_separated`);
+        const result = await separateVocals(outputDir, projectId, audioPath, acceleration);
+        accompanimentPath = result.accompanimentPath;
+      }
+
+      // 3. 匹配片段（始终执行，参数/音乐库可能变化）
       const musicIdsToUse = useCustomMusicLibrary && selectedMusicIds.length > 0
         ? selectedMusicIds
         : undefined;

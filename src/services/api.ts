@@ -15,6 +15,7 @@ import type {
   AccelerationOptions,
   AppConfig,
   SeparationResult,
+  CacheStatus,
   CutParams,
   ProgressInfo,
   ImportProgress,
@@ -111,6 +112,14 @@ export async function matchFingerprint(
 
 export async function analyzeVideo(path: string): Promise<VideoInfo> {
   return invoke('analyze_video', { path });
+}
+
+export async function checkCacheStatus(
+  projectId: string,
+  videoPath: string,
+  modelId: string,
+): Promise<CacheStatus> {
+  return invoke('check_cache_status', { projectId, videoPath, modelId });
 }
 
 export async function extractAudio(
