@@ -922,31 +922,75 @@ pub fn preload_gpu_capabilities() {
 }
 
 /// 检测 ONNX Runtime GPU 是否可用
+/// 通过 audio-separator --check-gpu 实际创建 ONNX session 验证
 fn check_onnx_gpu() -> bool {
     // 获取检测到的 GPU 类型，用于选择正确的 audio-separator 版本
     let gpu_type = config::get_config().detected_gpu;
     // 优先使用打包的 audio-separator 检测 GPU（生产环境）
     let separator_path = separator::resolve_separator_path(&gpu_type);
+    info!("[GPU检测] 使用 {} 进行 GPU 能力检测", separator_path);
     let output = hidden_command(&separator_path)
         .args(["--check-gpu"])
         .output();
 
     if let Ok(output) = &output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr_preview: String = stderr.chars().take(200).collect();
+        info!("[GPU检测] --check-gpu 退出码: {:?}, stdout: {}, stderr: {}",
+              output.status.code(),
+              stdout.trim(),
+              stderr_preview);
         if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
             return stdout.lines().any(|line| line.trim() == "onnx_gpu_ok");
         }
     }
 
     // 回退到系统 Python 检测（开发模式）
+    // 同样使用实际创建 session 的方式验证
+    info!("[GPU检测] 打包版本检测失败，回退到系统 Python 检测");
     let output = hidden_command("python")
         .args([
             "-c",
             r#"
-import onnxruntime as ort
-providers = ort.get_available_providers()
-has_gpu = 'DmlExecutionProvider' in providers or 'CUDAExecutionProvider' in providers
-print('onnx_gpu_ok' if has_gpu else 'onnx_gpu_no')
+import sys
+try:
+    import onnxruntime as ort
+    import numpy as np
+    import tempfile, os
+    providers = ort.get_available_providers()
+    gpu_provider = None
+    if 'CUDAExecutionProvider' in providers:
+        gpu_provider = 'CUDAExecutionProvider'
+    elif 'DmlExecutionProvider' in providers:
+        gpu_provider = 'DmlExecutionProvider'
+    if gpu_provider is None:
+        print('onnx_gpu_no')
+        sys.exit(0)
+    # Actually verify by creating a session
+    import onnx
+    from onnx import helper, TensorProto
+    X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 2])
+    Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [1, 2])
+    node = helper.make_node('Identity', ['X'], ['Y'])
+    graph = helper.make_graph([node], 'test', [X], [Y])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid('', 13)])
+    tmp = os.path.join(tempfile.gettempdir(), '_mc_gpu_check.onnx')
+    onnx.save(model, tmp)
+    try:
+        sess = ort.InferenceSession(tmp, providers=[gpu_provider, 'CPUExecutionProvider'])
+        active = [p for p in sess.get_providers() if p != 'CPUExecutionProvider']
+        if active:
+            sess.run(None, {'X': np.array([[1.0, 2.0]], dtype=np.float32)})
+            print('onnx_gpu_ok')
+        else:
+            print('onnx_gpu_no')
+    finally:
+        try: os.remove(tmp)
+        except: pass
+except Exception as e:
+    print('onnx_gpu_no', file=sys.stderr)
+    print('onnx_gpu_no')
 "#,
         ])
         .output();
@@ -954,8 +998,13 @@ print('onnx_gpu_ok' if has_gpu else 'onnx_gpu_no')
     match output {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.lines().any(|line| line.trim() == "onnx_gpu_ok")
+            let result = stdout.lines().any(|line| line.trim() == "onnx_gpu_ok");
+            info!("[GPU检测] Python 检测结果: {}", result);
+            result
         }
-        _ => false,
+        _ => {
+            info!("[GPU检测] Python 检测失败，默认 GPU 不可用");
+            false
+        }
     }
 }

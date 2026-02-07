@@ -62,9 +62,8 @@ pub fn separate_vocals(
     std::fs::create_dir_all(output_dir)?;
     info!("输出目录已创建: {}", output_dir);
 
-    // audio-separator 会自动检测并使用可用的设备 (GPU 优先，否则 CPU)
-    info!("audio-separator 将自动选择最佳设备");
-
+    // audio-separator 会自动检测并使用可用的设备
+    // 但我们通过环境变量明确控制 GPU/CPU 模式
     if let Some(ref cb) = progress_callback {
         cb(0.0, "准备分离音频...");
     }
@@ -89,16 +88,15 @@ pub fn separate_vocals(
     // 根据加速模式决定是否使用 GPU
     let use_gpu = match acceleration {
         AccelerationMode::Cpu => false,
-        _ => true,  // Gpu, Auto, Hybrid 都尝试使用 GPU
+        _ => gpu_caps.onnx_gpu_available,  // 只有 GPU 真正可用时才使用
     };
 
-    // GPU 模式：ONNX 模型自动检测并使用最佳 GPU 加速
     if use_gpu {
-        // ONNX 模型：audio-separator 自动检测并使用最佳 GPU 加速
-        // 不需要手动指定参数
-        info!("ONNX 模型将自动使用 GPU 加速（如果可用）");
+        info!("GPU 模式：已验证 ONNX GPU 可用，将优先使用 GPU 加速");
+    } else if matches!(acceleration, AccelerationMode::Cpu) {
+        info!("强制使用 CPU 模式（用户选择）");
     } else {
-        info!("强制使用 CPU 模式");
+        info!("GPU 不可用，回退到 CPU 模式");
     }
 
     info!("audio-separator 命令: audio-separator {}", args.join(" "));
@@ -125,6 +123,12 @@ pub fn separate_vocals(
         cmd.env("CUDA_VISIBLE_DEVICES", "-1");
         cmd.env("MUSICCUT_FORCE_CPU", "1");
         info!("已设置 CUDA_VISIBLE_DEVICES=\"-1\" 和 MUSICCUT_FORCE_CPU=\"1\" 禁用 GPU");
+    } else {
+        // GPU 模式：确保不会被残留的环境变量干扰
+        cmd.env("MUSICCUT_FORCE_CPU", "0");
+        // 确保 CUDA_VISIBLE_DEVICES 不被设为 -1（清除可能的限制）
+        cmd.env_remove("CUDA_VISIBLE_DEVICES");
+        info!("GPU 模式：已清除 CPU 强制标志，GPU 加速已启用");
     }
 
     let child = cmd.spawn()

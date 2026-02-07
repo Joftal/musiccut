@@ -36,7 +36,9 @@ def get_spec_content(variant):
     collect_name = f"audio-separator-{variant}"
     return f'''# -*- mode: python ; coding: utf-8 -*-
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+import os
+import glob
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -52,6 +54,63 @@ datas += collect_data_files('resampy')
 datas += collect_data_files('librosa')
 datas += collect_data_files('PIL')
 datas += collect_data_files('onnx')
+
+# Collect native shared libraries (DLLs / .so) that PyInstaller may miss
+binaries = []
+binaries += collect_dynamic_libs('onnxruntime')
+binaries += collect_dynamic_libs('torch')
+
+# --- Explicitly collect CUDA / cuDNN DLLs for the cuda variant ---
+# onnxruntime-gpu and torch+cu* ship CUDA runtime DLLs inside their
+# package directories, but PyInstaller's automatic analysis sometimes
+# misses them (especially cuDNN, cuBLAS, cuFFT, etc.).
+# We glob for all matching DLLs and add them as binaries.
+if '{variant}' == 'cuda':
+    import importlib
+    _cuda_dll_patterns = [
+        'cudnn*.dll', 'cublas*.dll', 'cufft*.dll', 'curand*.dll',
+        'cusolver*.dll', 'cusparse*.dll', 'cudart*.dll',
+        'nvrtc*.dll', 'nvJitLink*.dll',
+        'zlibwapi.dll',  # cuDNN dependency
+    ]
+    _search_dirs = set()
+    for pkg in ('onnxruntime', 'torch'):
+        try:
+            mod = importlib.import_module(pkg)
+            pkg_dir = os.path.dirname(mod.__file__)
+            _search_dirs.add(pkg_dir)
+            # Also check lib/ subdirectory (torch stores DLLs there)
+            _search_dirs.add(os.path.join(pkg_dir, 'lib'))
+            # onnxruntime capi directory
+            _search_dirs.add(os.path.join(pkg_dir, 'capi'))
+        except Exception:
+            pass
+    # Also search nvidia packages that pip installs alongside
+    for nvidia_pkg in (
+        'nvidia.cublas', 'nvidia.cuda_runtime', 'nvidia.cudnn',
+        'nvidia.cufft', 'nvidia.curand', 'nvidia.cusolver',
+        'nvidia.cusparse', 'nvidia.nvjitlink', 'nvidia.nvtx',
+    ):
+        try:
+            mod = importlib.import_module(nvidia_pkg)
+            pkg_dir = os.path.dirname(mod.__file__)
+            _search_dirs.add(pkg_dir)
+            _search_dirs.add(os.path.join(pkg_dir, 'lib'))
+            _search_dirs.add(os.path.join(pkg_dir, 'bin'))
+        except Exception:
+            pass
+
+    _found_cuda_dlls = set()
+    for d in _search_dirs:
+        if not os.path.isdir(d):
+            continue
+        for pattern in _cuda_dll_patterns:
+            for dll_path in glob.glob(os.path.join(d, pattern)):
+                dll_name = os.path.basename(dll_path).lower()
+                if dll_name not in _found_cuda_dlls:
+                    _found_cuda_dlls.add(dll_name)
+                    binaries.append((dll_path, '.'))
+    print(f"[spec] Collected {{len(_found_cuda_dlls)}} CUDA DLLs for bundling")
 
 # Collect all submodules
 hiddenimports = []
@@ -90,7 +149,7 @@ hiddenimports += [
 a = Analysis(
     ['audio_separator_entry.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -223,6 +282,22 @@ def install_dependencies(variant, venv_dir):
     print(f"Installing PyInstaller=={PYINSTALLER_VERSION}...")
     if not run_command([pip, "install", f"pyinstaller=={PYINSTALLER_VERSION}"]):
         return False
+
+    # Verify CUDA variant actually has CUDA PyTorch (not CPU fallback)
+    if variant == "cuda":
+        python = str(get_python(venv_dir))
+        result = subprocess.run(
+            [python, "-c", "import torch; print(torch.__version__)"],
+            capture_output=True, text=True,
+        )
+        torch_ver = result.stdout.strip() if result.returncode == 0 else "unknown"
+        print(f"Installed PyTorch version: {torch_ver}")
+        if "+cpu" in torch_ver:
+            print("ERROR: CUDA variant got CPU-only PyTorch! "
+                  "Delete tools/venv-cuda and retry.")
+            return False
+        if "+cu" not in torch_ver:
+            print(f"WARNING: PyTorch version '{torch_ver}' may not include CUDA support")
 
     return True
 
