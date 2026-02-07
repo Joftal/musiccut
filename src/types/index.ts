@@ -86,6 +86,15 @@ export interface SeparationResult {
   duration: number;
 }
 
+// 缓存状态
+export interface CacheStatus {
+  audio_valid: boolean;
+  audio_path: string | null;
+  separation_valid: boolean;
+  vocals_path: string | null;
+  accompaniment_path: string | null;
+}
+
 // 剪辑参数
 export interface CutParams {
   project_id: string;

@@ -210,6 +210,7 @@ fn main() {
 
             // 视频命令
             commands::video::analyze_video,
+            commands::video::check_cache_status,
             commands::video::extract_audio,
             commands::video::separate_vocals,
             commands::video::match_video_segments,

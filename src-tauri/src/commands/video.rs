@@ -7,7 +7,8 @@ use crate::utils::{VideoInfo, Segment, SegmentStatus, SeparationResult, CutParam
 use crate::video::ffmpeg;
 use crate::audio::{separator, fingerprint};
 use crate::audio::separator::GpuCapabilities;
-use tauri::Window;
+use tauri::{Window, State};
+use crate::utils::AppState;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -133,6 +134,171 @@ pub async fn analyze_video(path: String) -> AppResult<VideoInfo> {
     }
 
     ffmpeg::get_video_info(&path)
+}
+
+/// 缓存状态
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CacheStatus {
+    pub audio_valid: bool,
+    pub audio_path: Option<String>,
+    pub separation_valid: bool,
+    pub vocals_path: Option<String>,
+    pub accompaniment_path: Option<String>,
+}
+
+/// 检查项目的中间处理文件缓存是否有效
+/// 允许前端跳过耗时的音频提取和人声分离步骤
+#[tauri::command]
+pub async fn check_cache_status(
+    project_id: String,
+    video_path: String,
+    model_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CacheStatus> {
+    info!("=== 检查缓存状态 === project_id={}, video_path={}, model_id={}", project_id, video_path, model_id);
+
+    let temp_dir = state.app_dir.join("temp");
+
+    // 1. 检查音频提取缓存
+    let audio_file = temp_dir.join(format!("{}_audio.wav", project_id));
+    let video_file = Path::new(&video_path);
+
+    let audio_valid = if !audio_file.exists() {
+        info!("音频缓存未命中: 文件不存在 {}", audio_file.display());
+        false
+    } else if !audio_file.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+        info!("音频缓存未命中: 文件为空 {}", audio_file.display());
+        false
+    } else if !video_file.exists() {
+        info!("音频缓存未命中: 源视频不存在 {}", video_path);
+        false
+    } else {
+        let audio_mtime = audio_file.metadata().and_then(|m| m.modified()).ok();
+        let video_mtime = video_file.metadata().and_then(|m| m.modified()).ok();
+        match (audio_mtime, video_mtime) {
+            (Some(a), Some(v)) if a >= v => true,
+            (Some(_), Some(_)) => {
+                info!("音频缓存未命中: 源视频更新于音频文件之后");
+                false
+            }
+            _ => {
+                info!("音频缓存未命中: 无法获取文件修改时间");
+                false
+            }
+        }
+    };
+
+    info!("音频缓存有效: {}, 路径: {}", audio_valid, audio_file.display());
+
+    // 2. 检查人声分离缓存（仅在音频缓存有效时才有意义）
+    let separated_dir = temp_dir.join(format!("{}_separated", project_id));
+    let mut separation_valid = false;
+    let mut vocals_path_result: Option<String> = None;
+    let mut accompaniment_path_result: Option<String> = None;
+
+    if audio_valid && separated_dir.exists() {
+        let audio_filename = format!("{}_audio", project_id);
+        let sep_config = config::get_config();
+        let output_ext = &sep_config.separation.output_format;
+
+        if let Some(model) = crate::models::get_model_by_id(&model_id) {
+            let model_name = model.filename
+                .replace(".onnx", "")
+                .replace(".ckpt", "")
+                .replace(".yaml", "");
+
+            // 与 separator.rs 中相同的文件名搜索模式
+            let possible_instrumental = vec![
+                format!("{}_(Instrumental)_{}.{}", audio_filename, model_name, output_ext),
+                format!("{}_(Instrumental).{}", audio_filename, output_ext),
+                format!("{}_Instrumental.{}", audio_filename, output_ext),
+            ];
+            let possible_vocals = vec![
+                format!("{}_(Vocals)_{}.{}", audio_filename, model_name, output_ext),
+                format!("{}_(Vocals).{}", audio_filename, output_ext),
+                format!("{}_Vocals.{}", audio_filename, output_ext),
+            ];
+
+            // 查找伴奏文件
+            let find_file = |patterns: &[String]| -> Option<std::path::PathBuf> {
+                patterns.iter()
+                    .map(|name| separated_dir.join(name))
+                    .find(|p| p.exists() && p.metadata().map(|m| m.len() > 0).unwrap_or(false))
+            };
+
+            let found_acc = find_file(&possible_instrumental).or_else(|| {
+                // 模糊匹配
+                std::fs::read_dir(&separated_dir).ok().and_then(|entries| {
+                    entries.flatten().find_map(|entry| {
+                        let fname = entry.file_name().to_string_lossy().to_string();
+                        if fname.contains(&audio_filename)
+                            && (fname.to_lowercase().contains("instrument")
+                                || fname.to_lowercase().contains("no_vocal"))
+                        {
+                            let p = separated_dir.join(&fname);
+                            if p.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+                                return Some(p);
+                            }
+                        }
+                        None
+                    })
+                })
+            });
+
+            let found_voc = find_file(&possible_vocals).or_else(|| {
+                std::fs::read_dir(&separated_dir).ok().and_then(|entries| {
+                    entries.flatten().find_map(|entry| {
+                        let fname = entry.file_name().to_string_lossy().to_string();
+                        if fname.contains(&audio_filename)
+                            && (fname.to_lowercase().contains("vocal")
+                                || fname.to_lowercase().contains("voice"))
+                        {
+                            let p = separated_dir.join(&fname);
+                            if p.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+                                return Some(p);
+                            }
+                        }
+                        None
+                    })
+                })
+            });
+
+            if let (Some(acc), Some(voc)) = (&found_acc, &found_voc) {
+                info!("找到分离文件: 伴奏={}, 人声={}", acc.display(), voc.display());
+                // 分离文件修改时间必须 ≥ 音频文件修改时间
+                let acc_mtime = acc.metadata().and_then(|m| m.modified()).ok();
+                let audio_mtime = audio_file.metadata().and_then(|m| m.modified()).ok();
+                match (acc_mtime, audio_mtime) {
+                    (Some(a), Some(au)) if a >= au => {
+                        separation_valid = true;
+                        accompaniment_path_result = Some(acc.to_string_lossy().to_string());
+                        vocals_path_result = Some(voc.to_string_lossy().to_string());
+                    }
+                    (Some(_), Some(_)) => {
+                        info!("分离缓存未命中: 音频文件更新于分离文件之后");
+                    }
+                    _ => {
+                        info!("分离缓存未命中: 无法获取文件修改时间");
+                    }
+                }
+            } else {
+                info!("分离缓存未命中: 未找到匹配的分离文件 (伴奏={}, 人声={})",
+                    found_acc.is_some(), found_voc.is_some());
+            }
+        } else {
+            info!("模型 {} 未找到，无法验证分离缓存", model_id);
+        }
+    }
+
+    info!("分离缓存有效: {}", separation_valid);
+
+    Ok(CacheStatus {
+        audio_valid,
+        audio_path: if audio_valid { Some(audio_file.to_string_lossy().to_string()) } else { None },
+        separation_valid,
+        vocals_path: vocals_path_result,
+        accompaniment_path: accompaniment_path_result,
+    })
 }
 
 /// 提取音频
@@ -326,12 +492,19 @@ pub async fn match_video_segments(
     let window_for_progress = window.clone();
     let project_id_for_progress = project_id.clone();
 
-    // 并行处理每个窗口
+    // 并行处理每个窗口（限制线程数，预留 CPU 给 tokio 和 UI 响应）
     let library_arc = Arc::new(library);
     let temp_path = temp_dir.path().to_path_buf();
     let accompaniment_path_arc = Arc::new(accompaniment_path.clone());
 
-    let window_results: Vec<Option<(usize, String, String, f64)>> = window_times
+    let num_threads = num_cpus::get().saturating_sub(2).max(1);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .map_err(|e| AppError::Config(format!("创建线程池失败: {}", e)))?;
+
+    let window_results: Vec<Option<(usize, String, String, f64)>> = pool.install(|| {
+        window_times
         .par_iter()
         .map(|(window_index, current_time)| {
             // 检查取消标志
@@ -383,7 +556,8 @@ pub async fn match_video_segments(
 
             result
         })
-        .collect();
+        .collect()
+    });
 
     // 检查是否被取消
     if cancel_flag.load(Ordering::SeqCst) {
@@ -476,10 +650,8 @@ pub async fn match_video_segments(
         }
     }
 
-    // 保存片段到数据库
-    for segment in &segments {
-        database::insert_segment(segment)?;
-    }
+    // 保存片段到数据库（事务批量插入，只获取一次锁）
+    database::batch_insert_segments(&segments)?;
 
     // 发送完成进度（确保前端收到 100%）
     let _ = window.emit("matching-progress", serde_json::json!({
