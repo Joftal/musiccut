@@ -64,11 +64,16 @@ binaries += collect_dynamic_libs('onnxruntime')
 # Collect PyTorch DLLs (torch is required by audio-separator for tensor ops and STFT)
 binaries += collect_dynamic_libs('torch')
 
+# Collect torchvision DLLs (required by onnx2torch -> node_converters -> nms)
+binaries += collect_dynamic_libs('torchvision')
+
 # Collect all submodules
 hiddenimports = []
 hiddenimports += collect_submodules('audio_separator')
 hiddenimports += collect_submodules('onnxruntime')
 hiddenimports += collect_submodules('torch')
+hiddenimports += collect_submodules('torchvision')
+hiddenimports += collect_submodules('onnx2torch')
 hiddenimports += [
     'numpy',
     'scipy',
@@ -92,7 +97,6 @@ a = Analysis(
         'PIL',
         'IPython',
         'jupyter',
-        'torchvision',
         'torchaudio',
     ],
     win_no_prefer_redirects=False,
@@ -180,7 +184,7 @@ def install_dependencies():
     pip = str(get_pip())
 
     print("Installing PyTorch CPU (required by audio-separator)...")
-    if not run_command([pip, "install", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
         return False
 
     print("Installing ONNX Runtime GPU...")
