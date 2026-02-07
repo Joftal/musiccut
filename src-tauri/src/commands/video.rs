@@ -326,12 +326,19 @@ pub async fn match_video_segments(
     let window_for_progress = window.clone();
     let project_id_for_progress = project_id.clone();
 
-    // 并行处理每个窗口
+    // 并行处理每个窗口（限制线程数，预留 CPU 给 tokio 和 UI 响应）
     let library_arc = Arc::new(library);
     let temp_path = temp_dir.path().to_path_buf();
     let accompaniment_path_arc = Arc::new(accompaniment_path.clone());
 
-    let window_results: Vec<Option<(usize, String, String, f64)>> = window_times
+    let num_threads = num_cpus::get().saturating_sub(2).max(1);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .map_err(|e| AppError::Config(format!("创建线程池失败: {}", e)))?;
+
+    let window_results: Vec<Option<(usize, String, String, f64)>> = pool.install(|| {
+        window_times
         .par_iter()
         .map(|(window_index, current_time)| {
             // 检查取消标志
@@ -383,7 +390,8 @@ pub async fn match_video_segments(
 
             result
         })
-        .collect();
+        .collect()
+    });
 
     // 检查是否被取消
     if cancel_flag.load(Ordering::SeqCst) {
@@ -476,10 +484,8 @@ pub async fn match_video_segments(
         }
     }
 
-    // 保存片段到数据库
-    for segment in &segments {
-        database::insert_segment(segment)?;
-    }
+    // 保存片段到数据库（事务批量插入，只获取一次锁）
+    database::batch_insert_segments(&segments)?;
 
     // 发送完成进度（确保前端收到 100%）
     let _ = window.emit("matching-progress", serde_json::json!({

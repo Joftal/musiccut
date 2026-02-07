@@ -627,12 +627,42 @@ pub fn delete_segments_by_project(project_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// 批量插入/更新片段（使用事务，只获取一次锁）
+pub fn batch_insert_segments(segments: &[Segment]) -> AppResult<()> {
+    if segments.is_empty() {
+        return Ok(());
+    }
+    let conn = get_conn()?;
+    conn.execute_batch("BEGIN")?;
+    for segment in segments {
+        let status = match segment.status {
+            SegmentStatus::Detected => "detected",
+            SegmentStatus::Removed => "removed",
+        };
+        if let Err(e) = conn.execute(
+            "INSERT OR REPLACE INTO segments (id, project_id, music_id, start_time, end_time, confidence, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                segment.id,
+                segment.project_id,
+                segment.music_id,
+                segment.start_time,
+                segment.end_time,
+                segment.confidence,
+                status,
+            ],
+        ) {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(AppError::Database(e));
+        }
+    }
+    conn.execute_batch("COMMIT")?;
+    Ok(())
+}
+
 /// 批量更新片段
 pub fn batch_update_segments(segments: &[Segment]) -> AppResult<()> {
-    for segment in segments {
-        insert_segment(segment)?;
-    }
-    Ok(())
+    batch_insert_segments(segments)
 }
 
 /// 清空所有数据（重置数据库）
