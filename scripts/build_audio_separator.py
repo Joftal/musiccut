@@ -182,8 +182,8 @@ def install_dependencies():
     """Install dependencies (PyTorch CPU + ONNX Runtime GPU)"""
     pip = str(get_pip())
 
-    print("Installing PyTorch CPU (required by audio-separator)...")
-    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+    print("Installing PyTorch CUDA 12.8 (required by audio-separator for GPU acceleration)...")
+    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu128"]):
         return False
 
     print("Installing ONNX Runtime GPU...")
