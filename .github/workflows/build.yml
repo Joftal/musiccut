@@ -6,12 +6,18 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: '基于哪个 tag 生成版本和 changelog（例如 v1.0.0）'
+      version_bump:
+        description: '版本递增类型（none = 仅构建不发布）'
         required: true
-        type: string
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - none
+        default: patch
       create_release:
-        description: '是否创建 GitHub Release'
+        description: '是否创建 GitHub Release（仅 version_bump 非 none 时生效）'
         required: true
         type: boolean
         default: true
@@ -25,7 +31,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      create_release: ${{ github.event_name == 'push' || github.event.inputs.create_release == 'true' }}
+      create_release: ${{ github.event_name == 'push' || (github.event.inputs.version_bump != 'none' && github.event.inputs.create_release == 'true') }}
 
     steps:
       - name: Checkout repository
@@ -33,32 +39,62 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version
+      - name: Get version and create tag
         id: version
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            # tag push: 从 ref 中提取版本号
+            # tag push: 从 ref 中提取
             TAG_NAME=${GITHUB_REF#refs/tags/}
+            VERSION=${TAG_NAME#v}
           else
-            # 手动触发: 从 input 获取 tag 名
-            TAG_NAME="${{ github.event.inputs.tag }}"
+            BUMP="${{ github.event.inputs.version_bump }}"
+
+            if [ "$BUMP" = "none" ]; then
+              # 仅构建，不创建 tag
+              SHORT_SHA=$(git rev-parse --short HEAD)
+              echo "tag=" >> $GITHUB_OUTPUT
+              echo "version=dev-$SHORT_SHA" >> $GITHUB_OUTPUT
+              echo "仅构建模式，版本号: dev-$SHORT_SHA"
+              exit 0
+            fi
+
+            # 获取最新的 tag 版本号
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -z "$LATEST_TAG" ]; then
+              LATEST_VERSION="0.0.0"
+            else
+              LATEST_VERSION=${LATEST_TAG#v}
+            fi
+
+            # 解析 major.minor.patch
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+            MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+
+            # 递增版本号
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            TAG_NAME="v${VERSION}"
+
+            echo "版本递增: $LATEST_TAG -> $TAG_NAME ($BUMP)"
+
+            # 创建并推送 tag
+            git tag "$TAG_NAME"
+            git push origin "$TAG_NAME"
+            echo "Tag $TAG_NAME 已创建并推送"
           fi
-          # 去掉 v 前缀得到版本号
-          VERSION=${TAG_NAME#v}
+
           echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Tag: $TAG_NAME, Version: $VERSION"
 
-      - name: Validate tag exists
-        shell: bash
-        run: |
-          if ! git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Tag '${{ steps.version.outputs.tag }}' 不存在，请确认输入的 tag 名称正确"
-            exit 1
-          fi
-
       - name: Get changelog
+        if: steps.version.outputs.tag != ''
         id: changelog
         shell: bash
         run: |
@@ -163,10 +199,13 @@ jobs:
           Write-Host "Creating Python virtual environment..."
           python -m venv tools\venv
 
-          Write-Host "Installing ONNX Runtime GPU..."
-          .\tools\venv\Scripts\pip.exe install onnxruntime-gpu
+          Write-Host "Installing PyTorch CPU (required by audio-separator for tensor ops)..."
+          .\tools\venv\Scripts\pip.exe install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-          Write-Host "Installing audio-separator (ONNX only, no PyTorch)..."
+          Write-Host "Installing ONNX Runtime GPU with CUDA runtime..."
+          .\tools\venv\Scripts\pip.exe install "onnxruntime-gpu[cuda,cudnn]"
+
+          Write-Host "Installing audio-separator and PyInstaller..."
           .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller
 
           Write-Host "Building audio-separator executable..."

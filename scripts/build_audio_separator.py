@@ -21,7 +21,9 @@ VENV_DIR = TOOLS_DIR / "venv"
 # PyInstaller spec file content
 SPEC_CONTENT = '''# -*- mode: python ; coding: utf-8 -*-
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+import os
+import glob
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -30,10 +32,48 @@ datas = []
 datas += collect_data_files('audio_separator')
 datas += collect_data_files('onnxruntime')
 
-# Collect all submodules (ONNX only, no PyTorch)
+# Collect NVIDIA CUDA runtime DLLs from nvidia-* pip packages
+# These are required by onnxruntime_providers_cuda.dll at runtime
+binaries = []
+nvidia_packages = [
+    'nvidia.cuda_runtime',
+    'nvidia.cublas',
+    'nvidia.cufft',
+    'nvidia.curand',
+    'nvidia.cuda_nvrtc',
+    'nvidia.cudnn',
+    'nvidia.nvjitlink',
+]
+for pkg in nvidia_packages:
+    try:
+        mod = __import__(pkg, fromlist=[''])
+        pkg_dir = mod.__path__[0]
+        bin_dir = os.path.join(pkg_dir, 'bin')
+        lib_dir = os.path.join(pkg_dir, 'lib')
+        for search_dir in [bin_dir, lib_dir]:
+            if os.path.isdir(search_dir):
+                for dll in glob.glob(os.path.join(search_dir, '*.dll')):
+                    binaries.append((dll, '.'))
+                    print(f'  CUDA DLL: {os.path.basename(dll)}')
+    except ImportError:
+        print(f'  Warning: {pkg} not installed, skipping')
+
+# Also collect onnxruntime's own DLLs
+binaries += collect_dynamic_libs('onnxruntime')
+
+# Collect PyTorch DLLs (torch is required by audio-separator for tensor ops and STFT)
+binaries += collect_dynamic_libs('torch')
+
+# Collect torchvision DLLs (required by onnx2torch -> node_converters -> nms)
+binaries += collect_dynamic_libs('torchvision')
+
+# Collect all submodules
 hiddenimports = []
 hiddenimports += collect_submodules('audio_separator')
 hiddenimports += collect_submodules('onnxruntime')
+hiddenimports += collect_submodules('torch')
+hiddenimports += collect_submodules('torchvision')
+hiddenimports += collect_submodules('onnx2torch')
 hiddenimports += [
     'numpy',
     'scipy',
@@ -45,7 +85,7 @@ hiddenimports += [
 a = Analysis(
     ['audio_separator_entry.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -54,11 +94,8 @@ a = Analysis(
     excludes=[
         'matplotlib',
         'tkinter',
-        'PIL',
         'IPython',
         'jupyter',
-        'torch',
-        'torchvision',
         'torchaudio',
     ],
     win_no_prefer_redirects=False,
@@ -103,7 +140,7 @@ coll = COLLECT(
 ENTRY_SCRIPT = '''#!/usr/bin/env python3
 """audio-separator entry point"""
 import sys
-from audio_separator.separator import main
+from audio_separator.utils.cli import main
 
 if __name__ == '__main__':
     sys.exit(main())
@@ -142,8 +179,12 @@ def get_python():
 
 
 def install_dependencies():
-    """Install dependencies (ONNX Runtime only, no PyTorch)"""
+    """Install dependencies (PyTorch CPU + ONNX Runtime GPU)"""
     pip = str(get_pip())
+
+    print("Installing PyTorch CPU (required by audio-separator)...")
+    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+        return False
 
     print("Installing ONNX Runtime GPU...")
     if not run_command([pip, "install", "onnxruntime-gpu"]):
