@@ -122,7 +122,7 @@ jobs:
           node-version: '22'
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.93.0
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -199,14 +199,14 @@ jobs:
           Write-Host "Creating Python virtual environment..."
           python -m venv tools\venv
 
-          Write-Host "Installing PyTorch CPU (required by audio-separator for tensor ops)..."
-          .\tools\venv\Scripts\pip.exe install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          Write-Host "Installing PyTorch CUDA 12.8 (required by audio-separator for GPU acceleration)..."
+          .\tools\venv\Scripts\pip.exe install torch==2.10.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
 
           Write-Host "Installing ONNX Runtime GPU with CUDA runtime..."
-          .\tools\venv\Scripts\pip.exe install "onnxruntime-gpu[cuda,cudnn]"
+          .\tools\venv\Scripts\pip.exe install "onnxruntime-gpu[cuda,cudnn]==1.22.0"
 
           Write-Host "Installing audio-separator and PyInstaller..."
-          .\tools\venv\Scripts\pip.exe install audio-separator pyinstaller
+          .\tools\venv\Scripts\pip.exe install audio-separator==0.41.1 pyinstaller==6.13.0
 
           Write-Host "Building audio-separator executable..."
           .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py

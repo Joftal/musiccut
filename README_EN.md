@@ -33,7 +33,7 @@
 ## 📸 Application Screenshot
 
 <p align="center">
-  <img width="1404" height="864" alt="xiezuo20260205-144740" src="https://github.com/user-attachments/assets/59e184f3-b7af-49b8-83cf-ce57294ff871" />
+ <img width="2000" height="1334" alt="image" src="https://github.com/user-attachments/assets/fd380c66-66a4-4197-8aef-b7c2a2b394bc" />
 </p>
 
 ---

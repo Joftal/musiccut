@@ -182,22 +182,22 @@ def install_dependencies():
     """Install dependencies (PyTorch CPU + ONNX Runtime GPU)"""
     pip = str(get_pip())
 
-    print("Installing PyTorch CPU (required by audio-separator)...")
-    if not run_command([pip, "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]):
+    print("Installing PyTorch CUDA 12.8 (required by audio-separator for GPU acceleration)...")
+    if not run_command([pip, "install", "torch==2.10.0", "torchvision==0.22.0", "--index-url", "https://download.pytorch.org/whl/cu128"]):
         return False
 
     print("Installing ONNX Runtime GPU...")
-    if not run_command([pip, "install", "onnxruntime-gpu"]):
+    if not run_command([pip, "install", "onnxruntime-gpu==1.22.0"]):
         print("Warning: ONNX Runtime GPU install failed, trying CPU version...")
-        if not run_command([pip, "install", "onnxruntime"]):
+        if not run_command([pip, "install", "onnxruntime==1.22.0"]):
             return False
 
     print("Installing audio-separator...")
-    if not run_command([pip, "install", "audio-separator"]):
+    if not run_command([pip, "install", "audio-separator==0.41.1"]):
         return False
 
     print("Installing PyInstaller...")
-    if not run_command([pip, "install", "pyinstaller"]):
+    if not run_command([pip, "install", "pyinstaller==6.13.0"]):
         return False
 
     return True

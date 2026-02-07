@@ -927,8 +927,11 @@ fn check_onnx_gpu() -> bool {
     let separator_path = separator::resolve_separator_path();
     info!("使用 audio-separator 检测 GPU: {}", separator_path);
 
+    // 传递 --model_file_dir 到系统临时目录，避免 audio-separator 在默认路径
+    // (/tmp/audio-separator-models/) 创建空文件夹
+    let temp_dir = std::env::temp_dir();
     let output = hidden_command(&separator_path)
-        .args(["-e"])
+        .args(["-e", "--model_file_dir", &temp_dir.to_string_lossy()])
         .output();
 
     match output {
