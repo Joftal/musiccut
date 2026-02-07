@@ -236,7 +236,7 @@ jobs:
           # Install PyTorch CUDA AFTER audio-separator with --force-reinstall
           # to guarantee the CUDA build replaces any CPU torch pulled by audio-separator
           Write-Host "Installing PyTorch (CUDA)..."
-          .\tools\venv-cuda\Scripts\pip.exe install --force-reinstall torch==${{ env.TORCH_VERSION }} torchvision==${{ env.TORCHVISION_VERSION }} --index-url https://download.pytorch.org/whl/cu124
+          .\tools\venv-cuda\Scripts\pip.exe install --force-reinstall torch==${{ env.TORCH_VERSION }} torchvision==${{ env.TORCHVISION_VERSION }} --index-url https://download.pytorch.org/whl/cu126
 
           # Verify PyTorch CUDA version (fail fast if CPU-only was installed)
           $torchVer = .\tools\venv-cuda\Scripts\python.exe -c "import torch; print(torch.__version__)"

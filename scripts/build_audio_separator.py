@@ -29,7 +29,7 @@ ONNX_VERSION = "1.20.1"
 PYINSTALLER_VERSION = "6.18.0"
 
 TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
-TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
+TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu126"
 
 def get_spec_content(variant):
     """Generate PyInstaller spec file content for the given variant."""
@@ -248,7 +248,7 @@ def install_dependencies(variant, venv_dir):
     Install order matters for the cuda variant:
       1. audio-separator (with --no-deps to prevent it pulling CPU-only torch)
       2. All audio-separator runtime deps except torch/onnxruntime
-      3. PyTorch CUDA from the cu124 index
+      3. PyTorch CUDA from the cu126 index
       4. onnxruntime-gpu (replaces any onnxruntime pulled by audio-separator)
     This ensures pip never downgrades CUDA torch to CPU torch.
     """
