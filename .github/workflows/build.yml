@@ -278,13 +278,13 @@ jobs:
             Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
           }
 
-          # Create 7z archive (avoid nesting dist/ in the archive)
+          # Create 7z split archive (1900MB per volume to stay under GitHub's 2GB limit)
           Push-Location "dist"
-          7z a -t7z -mx=9 "$archiveName" "$outputFolder"
+          7z a -t7z -mx=9 -v1900m "$archiveName" "$outputFolder"
           Pop-Location
 
-          Write-Host "FFmpeg package created: dist/$archiveName"
-          Get-ChildItem "dist/*.7z"
+          Write-Host "FFmpeg package created (split volumes):"
+          Get-ChildItem "dist/MusicCut_*_x64_FFmpeg.7z*"
 
       - name: Create NoFFmpeg Package
         shell: pwsh
@@ -317,19 +317,19 @@ jobs:
             Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
           }
 
-          # Create 7z archive (avoid nesting dist/ in the archive)
+          # Create 7z split archive (1900MB per volume to stay under GitHub's 2GB limit)
           Push-Location "dist"
-          7z a -t7z -mx=9 "$archiveName" "$outputFolder"
+          7z a -t7z -mx=9 -v1900m "$archiveName" "$outputFolder"
           Pop-Location
 
-          Write-Host "NoFFmpeg package created: dist/$archiveName"
-          Get-ChildItem "dist/*.7z"
+          Write-Host "NoFFmpeg package created (split volumes):"
+          Get-ChildItem "dist/MusicCut_*_x64_NoFFmpeg.7z*"
 
       - name: List artifacts
         shell: pwsh
         run: |
           Write-Host "=== Build Artifacts ==="
-          Get-ChildItem "dist\*.7z" | ForEach-Object {
+          Get-ChildItem "dist\*.7z*" | ForEach-Object {
             $sizeMB = [math]::Round($_.Length / 1MB, 2)
             Write-Host "$($_.Name) - $sizeMB MB"
           }
@@ -338,7 +338,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg
-          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg.7z
+          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg.7z*
           compression-level: 0
           retention-days: 30
 
@@ -346,7 +346,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg
-          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg.7z
+          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg.7z*
           compression-level: 0
           retention-days: 30
 
@@ -390,7 +390,7 @@ jobs:
           find artifacts -type f
           echo ""
           echo "7z files:"
-          find artifacts -type f -name "*.7z" | while read f; do
+          find artifacts -type f -name "*.7z*" | while read f; do
             size=$(du -h "$f" | cut -f1)
             echo "$f - $size"
           done
@@ -411,14 +411,16 @@ jobs:
 
             | 版本 | 说明 | 适用场景 |
             |:---:|:---|:---|
-            | **FFmpeg** | 完整版，包含 FFmpeg | 推荐大多数用户使用 |
-            | **NoFFmpeg** | 精简版，不含 FFmpeg | 已安装 FFmpeg 的用户 |
+            | **FFmpeg** | 完整版，包含 FFmpeg（分卷压缩） | 推荐大多数用户使用 |
+            | **NoFFmpeg** | 精简版，不含 FFmpeg（分卷压缩） | 已安装 FFmpeg 的用户 |
 
             ## 使用方法
 
-            1. 下载对应版本的 `.7z` 文件
+            1. 下载对应版本的压缩文件
             2. 解压到任意目录
             3. 运行 `MusicCut.exe`
+
+            > ⚠️ **两个版本均为分卷压缩**：请下载同一版本的所有 `.7z.001`、`.7z.002`... 等文件，放在同一目录后，解压 `.001` 文件即可自动合并。
 
             ## NoFFmpeg 版本说明
 
@@ -427,7 +429,7 @@ jobs:
             - 下载 [fpcalc](https://acoustid.org/chromaprint)
             - 将 `ffmpeg.exe`、`ffprobe.exe`、`fpcalc.exe` 放入程序目录的 `ffmpeg` 文件夹，或添加到系统 PATH
           files: |
-            artifacts/**/*.7z
+            artifacts/**/*.7z*
           draft: false
           prerelease: false
         env:
