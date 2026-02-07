@@ -202,7 +202,7 @@ jobs:
           python -m venv tools\venv
 
           Write-Host "Installing PyTorch CUDA 12.8 (required by audio-separator for GPU acceleration)..."
-          .\tools\venv\Scripts\pip.exe install torch==2.10.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
+          .\tools\venv\Scripts\pip.exe install torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
 
           Write-Host "Installing ONNX Runtime GPU with CUDA runtime..."
           .\tools\venv\Scripts\pip.exe install "onnxruntime-gpu[cuda,cudnn]==1.22.0"
