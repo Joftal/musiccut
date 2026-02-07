@@ -94,7 +94,6 @@ a = Analysis(
     excludes=[
         'matplotlib',
         'tkinter',
-        'PIL',
         'IPython',
         'jupyter',
         'torchaudio',
