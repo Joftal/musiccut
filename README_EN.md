@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/Tauri-2.x-orange?style=flat-square&logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="React">
   <img src="https://img.shields.io/badge/Rust-stable-dea584?style=flat-square&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square" alt="License">
 </p>
 
 ---
@@ -147,7 +147,7 @@ cd musiccut
 
 ## 📄 License
 
-This project is open source under the **MIT License**.
+This project is open source under the **GNU Affero General Public License v3.0 (AGPLv3)**. See the [LICENSE](./LICENSE) file for details.
 
 ---
 

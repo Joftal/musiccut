@@ -3,7 +3,7 @@ name = "musiccut"
 version = "1.0.0"
 description = "音频指纹视频剪辑工具"
 authors = ["MusicCut Team"]
-license = "MIT"
+license = "AGPL-3.0-only"
 repository = ""
 edition = "2021"
 

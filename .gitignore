@@ -30,6 +30,7 @@ npm-debug.log*
 /data/
 *.db
 *.db-journal
+src-tauri/data/
 
 # Temporary files
 temp/

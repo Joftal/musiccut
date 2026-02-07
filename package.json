@@ -2,6 +2,7 @@
   "name": "musiccut",
   "version": "1.0.0",
   "description": "音频指纹视频剪辑工具 - 基于音乐识别自动剪辑视频",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
