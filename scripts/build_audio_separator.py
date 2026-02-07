@@ -244,6 +244,13 @@ def install_dependencies(variant, venv_dir):
 
     cuda: PyTorch CUDA + onnxruntime-gpu
     dml:  PyTorch CPU  + onnxruntime-directml
+
+    Install order matters for the cuda variant:
+      1. audio-separator (with --no-deps to prevent it pulling CPU-only torch)
+      2. All audio-separator runtime deps except torch/onnxruntime
+      3. PyTorch CUDA from the cu124 index
+      4. onnxruntime-gpu (replaces any onnxruntime pulled by audio-separator)
+    This ensures pip never downgrades CUDA torch to CPU torch.
     """
     pip = str(get_pip(venv_dir))
 
@@ -252,21 +259,42 @@ def install_dependencies(variant, venv_dir):
         print("Warning: Pillow install failed")
         return False
 
+    # Install audio-separator first with --no-deps so it cannot pull CPU torch
+    print(f"Installing audio-separator=={AUDIO_SEPARATOR_VERSION} (no-deps)...")
+    if not run_command([pip, "install", "--no-deps",
+                        f"audio-separator=={AUDIO_SEPARATOR_VERSION}"]):
+        return False
+
+    # Install audio-separator's other dependencies (excluding torch/onnxruntime
+    # which we pin separately below)
+    print(f"Installing audio-separator runtime dependencies...")
+    if not run_command([pip, "install",
+                        f"audio-separator=={AUDIO_SEPARATOR_VERSION}",
+                        f"onnx=={ONNX_VERSION}"]):
+        return False
+
+    # Now install the correct PyTorch variant AFTER audio-separator,
+    # using --force-reinstall to guarantee the right build replaces any
+    # CPU-only torch that audio-separator's deps may have pulled in.
     if variant == "cuda":
         print(f"Installing PyTorch=={TORCH_VERSION} (CUDA, for NVIDIA GPU)...")
-        if not run_command([pip, "install", f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", "--index-url", TORCH_CUDA_INDEX]):
+        if not run_command([pip, "install", "--force-reinstall",
+                            f"torch=={TORCH_VERSION}",
+                            f"torchvision=={TORCHVISION_VERSION}",
+                            "--index-url", TORCH_CUDA_INDEX]):
             print("Warning: PyTorch CUDA install failed")
             return False
     else:
         print(f"Installing PyTorch=={TORCH_VERSION} (CPU only)...")
-        if not run_command([pip, "install", f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", "--index-url", TORCH_CPU_INDEX]):
+        if not run_command([pip, "install",
+                            f"torch=={TORCH_VERSION}",
+                            f"torchvision=={TORCHVISION_VERSION}",
+                            "--index-url", TORCH_CPU_INDEX]):
             print("Warning: PyTorch CPU install failed")
             return False
 
-    print(f"Installing audio-separator=={AUDIO_SEPARATOR_VERSION}...")
-    if not run_command([pip, "install", f"audio-separator=={AUDIO_SEPARATOR_VERSION}", f"onnx=={ONNX_VERSION}"]):
-        return False
-
+    # Install the correct ONNX Runtime variant last so it wins over any
+    # onnxruntime that audio-separator may have brought in.
     if variant == "cuda":
         print(f"Installing ONNX Runtime GPU=={ONNXRUNTIME_GPU_VERSION} (CUDA)...")
         if not run_command([pip, "install", f"onnxruntime-gpu=={ONNXRUNTIME_GPU_VERSION}"]):
