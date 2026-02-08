@@ -16,6 +16,7 @@
   <a href="#-features">Features</a> •
   <a href="#-tech-stack">Tech Stack</a> •
   <a href="#-system-requirements">System Requirements</a> •
+  <a href="#-Performance-Benchmark">Performance Benchmark</a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-workflow">Workflow</a>
 </p>
@@ -99,6 +100,18 @@
 | 🎮 GPU | - | NVIDIA GPU (CUDA) |
 
 > 💡 **Tip**: GPU acceleration significantly improves vocal separation speed. NVIDIA GPU is recommended.
+
+---
+
+## ⚡ Performance Benchmark
+
+| Item | Specification |
+|:---|:---|
+| CPU | Intel Core i5-13600KF |
+| GPU | NVIDIA GeForce RTX 4080 |
+| Input | 3-hour video + 160-song local music library |
+| Processing Pipeline | Vocal separation → Audio fingerprint extraction → Full-library matching → Clip marking |
+| Total Time | 9 minutes |
 
 ---
 
