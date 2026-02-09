@@ -1684,9 +1684,9 @@ const Editor: React.FC = () => {
             </div>
 
             <p className="text-sm text-[hsl(var(--text-muted))]">
-              {isCustomClipExport
-                ? t('editor.dialog.exportHint', { count: customClipSegments.length })
-                : t('editor.dialog.exportHint', { count: segments.filter(s => s.status !== 'removed').length })}
+              {exportMode === 'merged'
+                ? t('editor.dialog.exportHintMerged', { count: isCustomClipExport ? customClipSegments.length : segments.filter(s => s.status !== 'removed').length })
+                : t('editor.dialog.exportHintSeparate', { count: isCustomClipExport ? customClipSegments.length : segments.filter(s => s.status !== 'removed').length })}
             </p>
           </DialogBody>
           <DialogFooter>

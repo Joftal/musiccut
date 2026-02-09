@@ -176,7 +176,8 @@
       "outputDir": "输出目录",
       "selectSavePath": "选择保存位置",
       "selectOutputDir": "选择输出目录",
-      "exportHint": "将以高质量重编码模式导出 {{count}} 个片段。"
+      "exportHintMerged": "将 {{count}} 个片段合并导出为一个文件，优先无损剪辑，必要时自动重编码。",
+      "exportHintSeparate": "将 {{count}} 个片段分别导出为独立文件，优先无损剪辑，必要时自动重编码。"
     },
     "toast": {
       "noModel": "无可用模型",

@@ -176,7 +176,8 @@
       "outputDir": "Output Directory",
       "selectSavePath": "Select save location",
       "selectOutputDir": "Select output directory",
-      "exportHint": "Will export {{count}} segments in high quality re-encoding mode."
+      "exportHintMerged": "Merge {{count}} segments into one file. Lossless cut preferred, auto re-encode if needed.",
+      "exportHintSeparate": "Export {{count}} segments as separate files. Lossless cut preferred, auto re-encode if needed."
     },
     "toast": {
       "noModel": "No model available",
