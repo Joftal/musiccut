@@ -48,6 +48,7 @@ $PythonOK = $false
 $VenvOK = $false
 $AudioSeparatorOK = $false
 $OnnxGpuOK = $false
+$TorchGpuOK = $false
 
 function Test-CommandExists {
     param([string]$Cmd)
@@ -192,6 +193,21 @@ if ($venvPython) {
     Write-Host "Venv not ready" -ForegroundColor Yellow
 }
 
+# Check PyTorch CUDA (in venv)
+Write-Host "Checking PyTorch CUDA (venv)... " -NoNewline
+if ($venvPython) {
+    $torchGpuCheck = $null
+    try { $torchGpuCheck = & $venvPython -c "import torch; print('yes' if torch.cuda.is_available() else 'no')" 2>$null } catch {}
+    if ($torchGpuCheck -eq "yes") {
+        Write-Host "OK (CUDA available)" -ForegroundColor Green
+        $TorchGpuOK = $true
+    } else {
+        Write-Host "Not available (CPU-only PyTorch)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "Venv not ready" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "       Step 2: Install Missing" -ForegroundColor Cyan
@@ -266,8 +282,8 @@ if ($VenvOK -and -not $AudioSeparatorOK) {
     }
 }
 
-# Install ONNX Runtime GPU in venv
-if ($VenvOK -and $AudioSeparatorOK -and -not $OnnxGpuOK) {
+# Install GPU packages in venv (ONNX Runtime GPU + CUDA PyTorch)
+if ($VenvOK -and $AudioSeparatorOK) {
     # Check for NVIDIA GPU
     $hasNvidia = $false
     try {
@@ -276,38 +292,67 @@ if ($VenvOK -and $AudioSeparatorOK -and -not $OnnxGpuOK) {
     } catch {}
 
     if ($hasNvidia) {
-        Write-Host ""
-        Write-Host "NVIDIA GPU detected. ONNX Runtime GPU not installed." -ForegroundColor Yellow
-        Write-Host "  This will download ONNX Runtime with CUDA support." -ForegroundColor Gray
-        Write-Host "Press Enter to install GPU version, or Ctrl+C to skip..." -ForegroundColor Cyan
-        Read-Host | Out-Null
-
-        Write-Host "Installing ONNX Runtime GPU in venv..." -ForegroundColor Cyan
         $venvPip = Get-VenvPip
         $venvPython = Get-VenvPython
 
-        try {
-            # Uninstall CPU version first
-            Write-Host "  Removing CPU-only ONNX Runtime..." -ForegroundColor Gray
-            & $venvPip uninstall onnxruntime -y 2>$null | Out-Null
+        # Install ONNX Runtime GPU
+        if (-not $OnnxGpuOK) {
+            Write-Host ""
+            Write-Host "NVIDIA GPU detected. ONNX Runtime GPU not installed." -ForegroundColor Yellow
+            Write-Host "  This will install ONNX Runtime with CUDA support." -ForegroundColor Gray
+            Write-Host "Press Enter to install, or Ctrl+C to skip..." -ForegroundColor Cyan
+            Read-Host | Out-Null
 
-            # Install GPU version
-            Write-Host "  Installing ONNX Runtime GPU..." -ForegroundColor Gray
-            & $venvPip install onnxruntime-gpu
+            try {
+                Write-Host "  Removing CPU-only ONNX Runtime..." -ForegroundColor Gray
+                & $venvPip uninstall onnxruntime -y 2>$null | Out-Null
 
-            # Verify
-            $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null
-            if ($onnxGpuCheck -eq "yes") {
-                Write-Host "  ONNX Runtime GPU installed successfully" -ForegroundColor Green
-                $OnnxGpuOK = $true
-            } else {
-                Write-Host "  ONNX Runtime installed but CUDA not available (driver issue?)" -ForegroundColor Yellow
+                Write-Host "  Installing ONNX Runtime GPU..." -ForegroundColor Gray
+                & $venvPip install onnxruntime-gpu
+
+                $onnxGpuCheck = & $venvPython -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('yes' if 'CUDAExecutionProvider' in providers else 'no')" 2>$null
+                if ($onnxGpuCheck -eq "yes") {
+                    Write-Host "  ONNX Runtime GPU installed successfully" -ForegroundColor Green
+                    $OnnxGpuOK = $true
+                } else {
+                    Write-Host "  ONNX Runtime installed but CUDA not available (driver issue?)" -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "  Failed to install ONNX Runtime GPU: $_" -ForegroundColor Red
             }
-        } catch {
-            Write-Host "  Failed to install ONNX Runtime GPU: $_" -ForegroundColor Red
+        }
+
+        # Install CUDA-enabled PyTorch (replaces CPU-only version from audio-separator)
+        if (-not $TorchGpuOK) {
+            Write-Host ""
+            Write-Host "NVIDIA GPU detected. PyTorch CUDA not installed." -ForegroundColor Yellow
+            Write-Host "  This will replace CPU-only PyTorch with CUDA-enabled version." -ForegroundColor Gray
+            Write-Host "  audio-separator needs PyTorch CUDA to enable GPU acceleration." -ForegroundColor Gray
+            Write-Host "Press Enter to install, or Ctrl+C to skip..." -ForegroundColor Cyan
+            Read-Host | Out-Null
+
+            try {
+                Write-Host "  Removing CPU-only PyTorch..." -ForegroundColor Gray
+                & $venvPip uninstall torch torchvision -y 2>$null | Out-Null
+
+                Write-Host "  Installing PyTorch with CUDA support (this may take a while)..." -ForegroundColor Gray
+                & $venvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+                $torchGpuCheck = & $venvPython -c "import torch; print('yes' if torch.cuda.is_available() else 'no')" 2>$null
+                if ($torchGpuCheck -eq "yes") {
+                    Write-Host "  PyTorch CUDA installed successfully" -ForegroundColor Green
+                    $TorchGpuOK = $true
+                } else {
+                    Write-Host "  PyTorch installed but CUDA not available (driver issue?)" -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "  Failed to install PyTorch CUDA: $_" -ForegroundColor Red
+            }
         }
     } else {
-        Write-Host "No NVIDIA GPU detected, skipping GPU installation" -ForegroundColor Gray
+        if (-not $OnnxGpuOK -or -not $TorchGpuOK) {
+            Write-Host "No NVIDIA GPU detected, skipping GPU installation" -ForegroundColor Gray
+        }
     }
 }
 
@@ -397,6 +442,9 @@ else { Write-Host "  [X]  audio-separator (venv)" -ForegroundColor Red; $allOk =
 
 if ($OnnxGpuOK) { Write-Host "  [OK] ONNX Runtime GPU (venv)" -ForegroundColor Green }
 else { Write-Host "  [--] ONNX Runtime GPU (optional)" -ForegroundColor Gray }
+
+if ($TorchGpuOK) { Write-Host "  [OK] PyTorch CUDA (venv)" -ForegroundColor Green }
+else { Write-Host "  [--] PyTorch CUDA (optional)" -ForegroundColor Gray }
 
 Write-Host ""
 
