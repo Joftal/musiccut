@@ -18,6 +18,12 @@ import {
   Eye,
   Pointer,
   Library,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Progress } from '@/components/ui/Progress';
@@ -98,9 +104,16 @@ const Editor: React.FC = () => {
     customClipMode,
     customClipStart,
     customClipEnd,
+    customClipSegments,
+    customClipEditingId,
     enterCustomClipMode,
     exitCustomClipMode,
     setCustomClipRange,
+    addCustomClipSegment,
+    updateCustomClipSegment,
+    removeCustomClipSegment,
+    editCustomClipSegment,
+    clearCustomClipEditing,
     // 自定义音乐库选择
     useCustomMusicLibrary,
     selectedMusicIds,
@@ -122,6 +135,8 @@ const Editor: React.FC = () => {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportPath, setExportPath] = useState('');
   const [exportMode, setExportMode] = useState<'merged' | 'separate'>('merged');
+  const [isCustomClipExport, setIsCustomClipExport] = useState(false);
+  const [showSegmentList, setShowSegmentList] = useState(false);
   const [acceleration, setAcceleration] = useState<string>('gpu');
   const [selectedModelId, setSelectedModelId] = useState<string>('mdx-inst-hq3');
   const [appDir, setAppDir] = useState<string>('');
@@ -138,6 +153,20 @@ const Editor: React.FC = () => {
 
   // 时间轴 ref，用于计算鼠标位置对应的时间
   const timelineRef = useRef<HTMLDivElement>(null);
+  // 片段列表下拉 ref，用于点击外部关闭
+  const segmentListRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭片段列表下拉
+  useEffect(() => {
+    if (!showSegmentList) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (segmentListRef.current && !segmentListRef.current.contains(e.target as Node)) {
+        setShowSegmentList(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSegmentList]);
 
   // 加载项目
   useEffect(() => {
@@ -466,7 +495,7 @@ const Editor: React.FC = () => {
     }
   };
 
-  // 导出自定义剪辑片段
+  // 导出自定义剪辑片段（单片段 - 保留原有逻辑）
   const handleExportCustomClip = async () => {
     if (!currentProject || customClipStart === null || customClipEnd === null) return;
 
@@ -532,6 +561,18 @@ const Editor: React.FC = () => {
         useEditorStore.setState({ cancellingProjectId: null });
       }
     }
+  };
+
+  // 导出自定义剪辑多片段 - 打开导出对话框
+  const handleExportCustomClipSegments = () => {
+    if (!currentProject || customClipSegments.length === 0) return;
+    setIsCustomClipExport(true);
+    setExportMode('merged');
+    if (currentProject) {
+      const { mergedPath } = getDefaultExportPaths(currentProject.source_video_path);
+      setExportPath(mergedPath);
+    }
+    setShowExportDialog(true);
   };
 
   // 计算自定义剪辑的有效时间范围
@@ -703,8 +744,91 @@ const Editor: React.FC = () => {
   };
 
   const handleExport = async () => {
+    if (!currentProject) return;
     let finalPath = exportPath;
 
+    // 自定义剪辑多片段导出
+    if (isCustomClipExport) {
+      const segmentsData = customClipSegments.map(s => ({
+        start_time: s.start_time,
+        end_time: s.end_time,
+      }));
+
+      const { setProcessing, setProcessingProgress } = useEditorStore.getState();
+
+      if (exportMode === 'merged') {
+        if (!finalPath) {
+          const path = await api.saveFileDialog(undefined, [
+            { name: t('common.videoFile'), extensions: ['mp4'] },
+          ]);
+          if (!path) return;
+          setExportPath(path);
+          finalPath = path;
+        }
+        setShowExportDialog(false);
+        setProcessing(true, t('editor.progress.exportingCustomClips'));
+        try {
+          await api.exportCustomClipsMerged(currentProject.id, segmentsData, finalPath);
+          addToast({
+            type: 'success',
+            title: t('editor.toast.exportComplete'),
+            description: finalPath,
+          });
+        } catch (error) {
+          const errorMsg = getErrorMessage(error);
+          if (!errorMsg.includes('取消')) {
+            addToast({ type: 'error', title: t('editor.toast.exportFailed'), description: errorMsg });
+          } else {
+            addToast({ type: 'info', title: t('editor.toast.cancelled'), description: t('editor.toast.exportCancelled', { name: currentProject.name }) });
+          }
+        } finally {
+          setProcessing(false);
+          setProcessingProgress(0);
+          setIsCustomClipExport(false);
+          // 重置取消状态（如果是取消导致的结束）
+          const { cancellingProjectId } = useEditorStore.getState();
+          if (cancellingProjectId === currentProject.id) {
+            useEditorStore.setState({ cancellingProjectId: null });
+          }
+        }
+      } else {
+        if (!finalPath) {
+          const path = await api.openDirectoryDialog();
+          if (!path) return;
+          setExportPath(path);
+          finalPath = path;
+        }
+        setShowExportDialog(false);
+        setProcessing(true, t('editor.progress.exportingCustomClips'));
+        try {
+          const result = await api.exportCustomClipsSeparately(currentProject.id, segmentsData, finalPath);
+          addToast({
+            type: 'success',
+            title: t('editor.toast.exportComplete'),
+            description: t('editor.toast.exportedSegments', { count: result.exported_count, path: finalPath }),
+          });
+        } catch (error) {
+          const errorMsg = getErrorMessage(error);
+          if (!errorMsg.includes('取消')) {
+            addToast({ type: 'error', title: t('editor.toast.exportFailed'), description: errorMsg });
+          } else {
+            addToast({ type: 'info', title: t('editor.toast.cancelled'), description: t('editor.toast.exportCancelled', { name: currentProject.name }) });
+          }
+        } finally {
+          setProcessing(false);
+          setProcessingProgress(0);
+          setIsCustomClipExport(false);
+          // 重置取消状态（如果是取消导致的结束）
+          const { cancellingProjectId } = useEditorStore.getState();
+          if (cancellingProjectId === currentProject.id) {
+            useEditorStore.setState({ cancellingProjectId: null });
+          }
+        }
+      }
+      return;
+    }
+
+    // 正常模式导出
     if (exportMode === 'merged') {
       // 合并导出模式
       if (!finalPath) {
@@ -898,6 +1022,7 @@ const Editor: React.FC = () => {
                 setExportPath(mergedPath);
               }
               setExportMode('merged');
+              setIsCustomClipExport(false);
               setShowExportDialog(true);
             }}
             disabled={processing || segments.filter(s => s.status !== 'removed').length === 0}
@@ -939,10 +1064,10 @@ const Editor: React.FC = () => {
       )}
 
       {/* 主内容区 */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* 视频预览 */}
-        <div className="flex-1 flex flex-col">
-          <div className="flex-1 bg-black flex items-center justify-center">
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 bg-black flex items-center justify-center min-h-0 overflow-hidden">
             <video
               ref={videoRef}
               src={convertFileSrc(currentProject.preview_video_path || currentProject.source_video_path)}
@@ -971,7 +1096,7 @@ const Editor: React.FC = () => {
           </div>
 
           {/* 播放控制 */}
-          <div className="p-4 bg-[hsl(var(--card-bg))] border-t border-[hsl(var(--border))]">
+          <div className="shrink-0 p-4 bg-[hsl(var(--card-bg))] border-t border-[hsl(var(--border))]">
             <div className="flex items-center gap-4">
               <button
                 onClick={togglePlay}
@@ -1137,6 +1262,7 @@ const Editor: React.FC = () => {
             onClick={() => {
               if (customClipMode) {
                 exitCustomClipMode();
+                setShowSegmentList(false);
               }
             }}
             disabled={processing}
@@ -1169,7 +1295,6 @@ const Editor: React.FC = () => {
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    // 开始时间：如果已有结束时间，确保不超过结束时间
                     const newStart = customClipEnd !== null && playbackPosition > customClipEnd
                       ? customClipEnd
                       : playbackPosition;
@@ -1193,7 +1318,6 @@ const Editor: React.FC = () => {
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    // 结束时间：如果已有开始时间，确保不小于开始时间
                     const newEnd = customClipStart !== null && playbackPosition < customClipStart
                       ? customClipStart
                       : playbackPosition;
@@ -1236,18 +1360,109 @@ const Editor: React.FC = () => {
                 {t('common.preview')}
               </Button>
               <Button
-                variant="success"
+                variant="primary"
                 size="sm"
-                onClick={handleExportCustomClip}
-                disabled={!getCustomClipValidRange().isValid || processing}
-                loading={processing}
+                onClick={addCustomClipSegment}
+                disabled={!getCustomClipValidRange().isValid}
               >
-                <Share2 className="w-4 h-4 mr-1" />
-                {t('common.export')}
+                <Plus className="w-4 h-4 mr-1" />
+                {t('editor.timeline.addSegment')}
               </Button>
             </>
           )}
         </div>
+
+        {/* 自定义剪辑片段栏 - 固定高度，常驻显示 */}
+        {customClipMode && (
+          <div className="flex items-center gap-2 h-[36px]">
+            <div className="relative" ref={segmentListRef}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowSegmentList(!showSegmentList)}
+                className="gap-1"
+              >
+                <Scissors className="w-4 h-4" />
+                {t('editor.timeline.clipSegments', { count: customClipSegments.length })}
+                {showSegmentList ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+              </Button>
+              {/* 向上展开的面板 */}
+              {showSegmentList && customClipSegments.length > 0 && (
+                <div className="absolute bottom-full left-0 mb-1 z-50 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg shadow-lg p-2 min-w-[320px] max-h-[240px] overflow-y-auto">
+                  {customClipSegments.map((seg, idx) => (
+                    <div
+                      key={seg.id}
+                      className={cn(
+                        'flex items-center gap-2 px-2 py-1.5 rounded text-xs',
+                        customClipEditingId === seg.id
+                          ? 'bg-primary-500/10 text-primary-600'
+                          : 'hover:bg-[hsl(var(--accent))] text-[hsl(var(--text-secondary))]'
+                      )}
+                    >
+                      <span className="font-medium w-6">#{idx + 1}</span>
+                      <span className="font-mono flex-1">{formatPreciseTime(seg.start_time)} - {formatPreciseTime(seg.end_time)}</span>
+                      <button
+                        className="p-1 rounded hover:bg-[hsl(var(--secondary))] transition-colors"
+                        onClick={() => { editCustomClipSegment(seg.id); setShowSegmentList(false); }}
+                        title={t('common.edit')}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button
+                        className="p-1 rounded hover:bg-red-100 hover:text-red-600 transition-colors"
+                        onClick={() => removeCustomClipSegment(seg.id)}
+                        title={t('common.delete')}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* 编辑片段操作 */}
+            {customClipEditingId && (
+              <>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => updateCustomClipSegment(customClipEditingId)}
+                  disabled={!getCustomClipValidRange().isValid}
+                >
+                  <Pencil className="w-4 h-4 mr-1" />
+                  {t('editor.timeline.updateSegment')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearCustomClipEditing}
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  {t('editor.timeline.cancelEdit')}
+                </Button>
+              </>
+            )}
+            {/* 导出按钮 - 常驻 */}
+            <Button
+              variant="success"
+              size="sm"
+              onClick={() => {
+                if (customClipSegments.length > 0) {
+                  handleExportCustomClipSegments();
+                } else {
+                  handleExportCustomClip();
+                }
+              }}
+              disabled={(customClipSegments.length === 0 && !getCustomClipValidRange().isValid) || processing}
+              loading={processing}
+            >
+              <Share2 className="w-4 h-4 mr-1" />
+              {customClipSegments.length > 0
+                ? t('editor.timeline.exportSegments', { count: customClipSegments.length })
+                : t('common.export')}
+            </Button>
+          </div>
+        )}
 
         {/* 时间轴轨道 */}
         <div
@@ -1297,10 +1512,31 @@ const Editor: React.FC = () => {
             );
           })}
 
-          {/* 自定义剪辑选择区域 */}
+          {/* 已提交的自定义剪辑片段 - 蓝色覆盖层 */}
+          {customClipMode && duration > 0 && customClipSegments.map((seg, idx) => (
+            <div
+              key={seg.id}
+              className={cn(
+                'absolute top-0 h-full z-[5] pointer-events-none',
+                customClipEditingId === seg.id
+                  ? 'bg-yellow-500/30 border-y-2 border-dashed border-yellow-500'
+                  : 'bg-blue-500/30'
+              )}
+              style={{
+                left: `${(seg.start_time / duration) * 100}%`,
+                width: `${((seg.end_time - seg.start_time) / duration) * 100}%`,
+              }}
+            >
+              <span className="absolute left-0.5 top-0.5 text-[9px] font-bold text-blue-700 bg-blue-200/80 rounded px-0.5">
+                {idx + 1}
+              </span>
+            </div>
+          ))}
+
+          {/* 自定义剪辑草稿选择区域 - 黄色虚线 */}
           {customClipMode && customClipStart !== null && customClipEnd !== null && duration > 0 && (
             <div
-              className="absolute top-0 h-full bg-primary-500/40 z-[6] pointer-events-none"
+              className="absolute top-0 h-full bg-primary-500/25 border-y-2 border-dashed border-primary-400 z-[6] pointer-events-none"
               style={{
                 left: `${(Math.min(customClipStart, customClipEnd) / duration) * 100}%`,
                 width: `${(Math.abs(customClipEnd - customClipStart) / duration) * 100}%`,
@@ -1448,7 +1684,9 @@ const Editor: React.FC = () => {
             </div>
 
             <p className="text-sm text-[hsl(var(--text-muted))]">
-              {t('editor.dialog.exportHint', { count: segments.filter(s => s.status !== 'removed').length })}
+              {isCustomClipExport
+                ? t('editor.dialog.exportHint', { count: customClipSegments.length })
+                : t('editor.dialog.exportHint', { count: segments.filter(s => s.status !== 'removed').length })}
             </p>
           </DialogBody>
           <DialogFooter>

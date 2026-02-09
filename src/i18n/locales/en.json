@@ -3,6 +3,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "delete": "Delete",
+    "edit": "Edit",
     "save": "Save",
     "search": "Search",
     "clear": "Clear",
@@ -156,7 +157,13 @@
       "end": "End",
       "duration": "Duration",
       "markStartTime": "Mark current playback position as start time",
-      "markEndTime": "Mark current playback position as end time"
+      "markEndTime": "Mark current playback position as end time",
+      "addSegment": "Add Segment",
+      "updateSegment": "Update Segment",
+      "cancelEdit": "Cancel Edit",
+      "clipSegments": "{{count}} segment(s) added",
+      "exportSegments": "Export {{count}} segment(s)",
+      "exportSingleClip": "Export current selection directly"
     },
     "dialog": {
       "exportTitle": "Export Video",
@@ -203,6 +210,7 @@
     "progress": {
       "generatingPreview": "Generating preview video (format not supported for direct playback)...",
       "exportingCustomClip": "Exporting custom clip...",
+      "exportingCustomClips": "Exporting custom clip segments...",
       "extractingAudio": "Extracting audio...",
       "separatingVocals": "Separating vocals...",
       "matchingSegments": "Matching audio segments..."

@@ -1,7 +1,7 @@
 // 编辑器状态管理
 
 import { create } from 'zustand';
-import type { Project, Segment, SegmentStatus } from '@/types';
+import type { Project, Segment, SegmentStatus, CustomClipSegment } from '@/types';
 import * as api from '@/services/api';
 import { useProjectStore } from './projectStore';
 import i18n from '@/i18n';
@@ -57,6 +57,8 @@ interface EditorState {
   customClipMode: boolean;
   customClipStart: number | null;
   customClipEnd: number | null;
+  customClipSegments: CustomClipSegment[];
+  customClipEditingId: string | null;
 
   // 自定义音乐库选择状态
   useCustomMusicLibrary: boolean;
@@ -108,6 +110,11 @@ interface EditorState {
   enterCustomClipMode: () => void;
   exitCustomClipMode: () => void;
   setCustomClipRange: (start: number | null, end: number | null) => void;
+  addCustomClipSegment: () => void;
+  updateCustomClipSegment: (id: string) => void;
+  removeCustomClipSegment: (id: string) => void;
+  editCustomClipSegment: (id: string) => void;
+  clearCustomClipEditing: () => void;
 
   // 自定义音乐库选择操作
   setUseCustomMusicLibrary: (use: boolean) => void;
@@ -210,6 +217,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
   customClipMode: false,
   customClipStart: null,
   customClipEnd: null,
+  customClipSegments: [],
+  customClipEditingId: null,
   // 自定义音乐库选择初始状态
   useCustomMusicLibrary: false,
   selectedMusicIds: [],
@@ -226,6 +235,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       customClipMode: false,
       customClipStart: null,
       customClipEnd: null,
+      customClipSegments: [],
+      customClipEditingId: null,
     });
 
     // 如果是同一个项目，只更新 segments，不重置处理状态
@@ -722,6 +733,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       customClipMode: true,
       customClipStart: null,
       customClipEnd: null,
+      customClipSegments: [],
+      customClipEditingId: null,
       selectedSegment: null, // 退出片段选择
     });
   },
@@ -731,6 +744,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       customClipMode: false,
       customClipStart: null,
       customClipEnd: null,
+      customClipSegments: [],
+      customClipEditingId: null,
     });
   },
 
@@ -738,6 +753,71 @@ export const useEditorStore = create<EditorState>((set, get) => {
     set({
       customClipStart: start,
       customClipEnd: end,
+    });
+  },
+
+  addCustomClipSegment: () => {
+    const { customClipStart, customClipEnd, customClipSegments } = get();
+    if (customClipStart === null || customClipEnd === null) return;
+    const start = Math.min(customClipStart, customClipEnd);
+    const end = Math.max(customClipStart, customClipEnd);
+    if (end - start < 0.1) return;
+    const newSegment: CustomClipSegment = {
+      id: crypto.randomUUID(),
+      start_time: start,
+      end_time: end,
+    };
+    const updated = [...customClipSegments, newSegment].sort((a, b) => a.start_time - b.start_time);
+    set({
+      customClipSegments: updated,
+      customClipStart: null,
+      customClipEnd: null,
+      customClipEditingId: null,
+    });
+  },
+
+  updateCustomClipSegment: (id: string) => {
+    const { customClipStart, customClipEnd, customClipSegments } = get();
+    if (customClipStart === null || customClipEnd === null) return;
+    const start = Math.min(customClipStart, customClipEnd);
+    const end = Math.max(customClipStart, customClipEnd);
+    if (end - start < 0.1) return;
+    const updated = customClipSegments
+      .map((seg) => seg.id === id ? { ...seg, start_time: start, end_time: end } : seg)
+      .sort((a, b) => a.start_time - b.start_time);
+    set({
+      customClipSegments: updated,
+      customClipStart: null,
+      customClipEnd: null,
+      customClipEditingId: null,
+    });
+  },
+
+  removeCustomClipSegment: (id: string) => {
+    const { customClipSegments, customClipEditingId } = get();
+    const updated = customClipSegments.filter((seg) => seg.id !== id);
+    const resetEditing = customClipEditingId === id;
+    set({
+      customClipSegments: updated,
+      ...(resetEditing ? { customClipEditingId: null, customClipStart: null, customClipEnd: null } : {}),
+    });
+  },
+
+  editCustomClipSegment: (id: string) => {
+    const seg = get().customClipSegments.find((s) => s.id === id);
+    if (!seg) return;
+    set({
+      customClipEditingId: id,
+      customClipStart: seg.start_time,
+      customClipEnd: seg.end_time,
+    });
+  },
+
+  clearCustomClipEditing: () => {
+    set({
+      customClipEditingId: null,
+      customClipStart: null,
+      customClipEnd: null,
     });
   },
 
@@ -783,6 +863,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       customClipMode: false,
       customClipStart: null,
       customClipEnd: null,
+      customClipSegments: [],
+      customClipEditingId: null,
       // 重置自定义音乐库选择状态
       useCustomMusicLibrary: false,
       selectedMusicIds: [],
