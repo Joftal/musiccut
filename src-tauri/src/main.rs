@@ -218,6 +218,8 @@ fn main() {
             commands::video::export_video,
             commands::video::export_video_separately,
             commands::video::export_custom_clip,
+            commands::video::export_custom_clips_merged,
+            commands::video::export_custom_clips_separately,
             commands::video::get_video_thumbnail,
             commands::video::cancel_processing,
             commands::video::cancel_preview_generation,

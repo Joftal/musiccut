@@ -10,6 +10,7 @@ import { getErrorMessage } from '@/utils';
 type ProjectStage =
   | 'idle'           // 空闲
   | 'extracting'     // 提取音频
+  | 'queued'         // 排队等待分离
   | 'separating'     // 人声分离
   | 'matching'       // 音频匹配
   | 'exporting'      // 视频导出
@@ -206,6 +207,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
       unlisteners.push(unlisten1);
 
+      // 分离排队
+      const unlistenQueued = await api.onSeparationQueued((data) => {
+        if (data.project_id) {
+          statusBuffer[data.project_id] = {
+            stage: 'queued',
+            progress: 0,
+          };
+        }
+      });
+      unlisteners.push(unlistenQueued);
+
       // 分离进度
       const unlisten2 = await api.onSeparationProgress((progress) => {
         if (progress.project_id) {
@@ -229,6 +241,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             delete statusBuffer[progress.project_id];
             completedStatus[progress.project_id] = 'analyzed';
             flushStatusBuffer();
+            // 重新加载项目列表，更新 segments 数据
+            get().loadProjects();
           } else {
             statusBuffer[progress.project_id] = {
               stage: 'matching',
@@ -279,14 +293,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 }));
 
 // 阶段显示配置（导出供组件使用）
-export const STAGE_CONFIG: Record<ProjectStage, { label: string; color: string }> = {
-  idle: { label: '', color: '' },
-  extracting: { label: '提取', color: 'text-primary-500' },
-  separating: { label: '分离', color: 'text-primary-500' },
-  matching: { label: '匹配', color: 'text-primary-500' },
-  exporting: { label: '导出', color: 'text-primary-500' },
-  analyzed: { label: '已分析', color: 'text-green-500' },
-  exported: { label: '已导出', color: 'text-green-500' },
+export const STAGE_CONFIG: Record<ProjectStage, { color: string }> = {
+  idle: { color: '' },
+  extracting: { color: 'text-primary-500' },
+  queued: { color: 'text-yellow-500' },
+  separating: { color: 'text-primary-500' },
+  matching: { color: 'text-primary-500' },
+  exporting: { color: 'text-primary-500' },
+  analyzed: { color: 'text-green-500' },
+  exported: { color: 'text-green-500' },
 };
 
 export type { ProjectStage, ProjectStatus };

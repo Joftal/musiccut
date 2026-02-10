@@ -27,6 +27,10 @@ lazy_static::lazy_static! {
 // GPU 能力缓存（整个应用生命周期只检测一次）
 static GPU_CAPS_CACHE: std::sync::OnceLock<GpuCapabilities> = std::sync::OnceLock::new();
 
+/// GPU 信号量：同一时间只允许一个人声分离任务使用 GPU，避免多项目并行时 GPU OOM
+static GPU_SEMAPHORE: once_cell::sync::Lazy<tokio::sync::Semaphore> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(1));
+
 /// RAII 守卫：作用域结束时自动清理取消标志，防止内存泄漏
 struct CancelFlagGuard {
     project_id: String,
@@ -360,6 +364,44 @@ pub async fn separate_vocals(
     let cancel_flag_id = project_id.clone().unwrap_or_else(|| "default".to_string());
     let _guard = CancelFlagGuard::new(cancel_flag_id.clone());
     let cancel_flag = reset_cancel_flag(&cancel_flag_id);
+
+    // GPU 信号量排队：同一时间只允许一个分离任务运行，避免 GPU OOM
+    let _permit = match GPU_SEMAPHORE.try_acquire() {
+        Ok(permit) => {
+            info!("[GPU_QUEUE] 直接获取 GPU 许可: project_id={}", cancel_flag_id);
+            permit
+        }
+        Err(_) => {
+            info!("[GPU_QUEUE] GPU 繁忙，排队等待: project_id={}", cancel_flag_id);
+            let _ = window.emit("separation-queued", serde_json::json!({
+                "project_id": project_id,
+                "message": "等待其他项目完成人声分离..."
+            }));
+
+            // 等待信号量，同时轮询取消标志
+            loop {
+                tokio::select! {
+                    result = GPU_SEMAPHORE.acquire() => {
+                        match result {
+                            Ok(permit) => {
+                                info!("[GPU_QUEUE] 排队结束，获取 GPU 许可: project_id={}", cancel_flag_id);
+                                break permit;
+                            }
+                            Err(_) => {
+                                return Err(AppError::VocalSeparation("GPU 信号量异常关闭".to_string()));
+                            }
+                        }
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {
+                        if cancel_flag.load(Ordering::SeqCst) {
+                            info!("[GPU_QUEUE] 排队等待中被取消: project_id={}", cancel_flag_id);
+                            return Err(AppError::Cancelled);
+                        }
+                    }
+                }
+            }
+        }
+    };
 
     let config = config::get_config();
 
@@ -923,7 +965,307 @@ pub async fn export_custom_clip(
     Ok(output_path)
 }
 
-/// 获取视频缩略图
+/// 自定义剪辑时间范围（前端传入）
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CustomClipRange {
+    pub start_time: f64,
+    pub end_time: f64,
+}
+
+/// 合并导出多个自定义剪辑片段
+#[tauri::command]
+pub async fn export_custom_clips_merged(
+    window: Window,
+    project_id: String,
+    segments: Vec<CustomClipRange>,
+    output_path: String,
+) -> AppResult<String> {
+    let _guard = CancelFlagGuard::new(project_id.clone());
+    let cancel_flag = reset_cancel_flag(&project_id);
+
+    let project = database::get_project_by_id(&project_id)?
+        .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
+
+    if !Path::new(&project.source_video_path).exists() {
+        error!("[EXPORT_CUSTOM_MERGED] 源视频文件不存在: {}", project.source_video_path);
+        return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
+    }
+
+    if segments.is_empty() {
+        return Err(AppError::InvalidArgument("没有剪辑片段".to_string()));
+    }
+
+    // 验证并转换片段
+    let mut time_ranges: Vec<(f64, f64)> = Vec::with_capacity(segments.len());
+    for (i, seg) in segments.iter().enumerate() {
+        if seg.start_time < 0.0 {
+            return Err(AppError::InvalidArgument(format!("片段 {} 开始时间不能为负数", i + 1)));
+        }
+        if seg.end_time <= seg.start_time {
+            return Err(AppError::InvalidArgument(format!("片段 {} 结束时间必须大于开始时间", i + 1)));
+        }
+        time_ranges.push((seg.start_time, seg.end_time));
+    }
+
+    // 按开始时间排序
+    time_ranges.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // 合并重叠片段
+    let merged = ffmpeg::merge_overlapping_segments(&time_ranges);
+
+    info!("=== 开始合并导出自定义剪辑片段 ===");
+    info!("[EXPORT_CUSTOM_MERGED] 项目ID: {}", project_id);
+    info!("[EXPORT_CUSTOM_MERGED] 源视频: {}", project.source_video_path);
+    info!("[EXPORT_CUSTOM_MERGED] 片段数: {} (合并后: {})", segments.len(), merged.len());
+    info!("[EXPORT_CUSTOM_MERGED] 输出路径: {}", output_path);
+
+    let _ = window.emit("export-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始合并导出自定义剪辑...",
+        "project_id": project_id
+    }));
+
+    // 确保输出目录存在
+    if let Some(parent) = Path::new(&output_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+
+    if let Err(e) = ffmpeg::smart_concat_segments(
+        &project.source_video_path,
+        &output_path,
+        &merged,
+        Some(Box::new(move |progress| {
+            let _ = window_clone.emit("export-progress", serde_json::json!({
+                "progress": progress,
+                "message": format!("导出中: {:.1}%", progress * 100.0),
+                "project_id": project_id_clone
+            }));
+        })),
+        cancel_flag,
+        &project_id,
+        true,
+    ) {
+        error!("[EXPORT_CUSTOM_MERGED] 导出失败: {}", e);
+        return Err(e);
+    }
+
+    info!("[EXPORT_CUSTOM_MERGED] 导出完成: {}", output_path);
+
+    let _ = window.emit("export-complete", serde_json::json!({
+        "output_path": output_path,
+        "project_id": project_id
+    }));
+
+    Ok(output_path)
+}
+
+/// 分别导出多个自定义剪辑片段
+#[tauri::command]
+pub async fn export_custom_clips_separately(
+    window: Window,
+    project_id: String,
+    segments: Vec<CustomClipRange>,
+    output_dir: String,
+) -> AppResult<serde_json::Value> {
+    let _guard = CancelFlagGuard::new(project_id.clone());
+    let cancel_flag = reset_cancel_flag(&project_id);
+    let internal_cancel = Arc::new(AtomicBool::new(false));
+
+    let project = database::get_project_by_id(&project_id)?
+        .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
+
+    if !Path::new(&project.source_video_path).exists() {
+        error!("[EXPORT_CUSTOM_SEP] 源视频文件不存在: {}", project.source_video_path);
+        return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
+    }
+
+    if segments.is_empty() {
+        return Err(AppError::InvalidArgument("没有剪辑片段".to_string()));
+    }
+
+    // 验证片段
+    for (i, seg) in segments.iter().enumerate() {
+        if seg.start_time < 0.0 {
+            return Err(AppError::InvalidArgument(format!("片段 {} 开始时间不能为负数", i + 1)));
+        }
+        if seg.end_time <= seg.start_time {
+            return Err(AppError::InvalidArgument(format!("片段 {} 结束时间必须大于开始时间", i + 1)));
+        }
+    }
+
+    let total_segments = segments.len();
+
+    info!("=== 开始分别导出自定义剪辑片段 ===");
+    info!("[EXPORT_CUSTOM_SEP] 项目ID: {}", project_id);
+    info!("[EXPORT_CUSTOM_SEP] 源视频: {}", project.source_video_path);
+    info!("[EXPORT_CUSTOM_SEP] 片段数: {}", total_segments);
+    info!("[EXPORT_CUSTOM_SEP] 输出目录: {}", output_dir);
+
+    let _ = window.emit("export-progress", serde_json::json!({
+        "progress": 0.0,
+        "message": "开始分别导出自定义剪辑片段...",
+        "project_id": project_id
+    }));
+
+    std::fs::create_dir_all(&output_dir)?;
+
+    // 获取源视频文件名
+    let source_stem = Path::new(&project.source_video_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
+    let safe_source_name: String = source_stem
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>()
+        .chars()
+        .take(30)
+        .collect();
+    let source_ext = Path::new(&project.source_video_path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mp4");
+
+    let format_time = |seconds: f64| -> String {
+        let total_secs = seconds as u32;
+        let mins = total_secs / 60;
+        let secs = total_secs % 60;
+        format!("{:02}m{:02}s", mins, secs)
+    };
+
+    // 生成任务列表
+    let tasks: Vec<(usize, f64, f64, String)> = segments
+        .iter()
+        .enumerate()
+        .map(|(i, seg)| {
+            let output_filename = format!(
+                "{}_clip_{:03}_{}_{}.{}",
+                safe_source_name,
+                i + 1,
+                format_time(seg.start_time),
+                format_time(seg.end_time),
+                source_ext
+            );
+            let output_path = Path::new(&output_dir).join(&output_filename);
+            (i, seg.start_time, seg.end_time, output_path.to_string_lossy().to_string())
+        })
+        .collect();
+
+    // 并行导出
+    let num_cpus = num_cpus::get();
+    let parallel_count = (num_cpus).max(1).min(8);
+    let completed_count = Arc::new(AtomicUsize::new(0));
+    let max_progress = Arc::new(Mutex::new(0.0f32));
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(parallel_count)
+        .build()
+        .map_err(|e| AppError::Video(format!("创建线程池失败: {}", e)))?;
+
+    let window_clone = window.clone();
+    let project_id_clone = project_id.clone();
+    let max_progress_clone = Arc::clone(&max_progress);
+
+    let results: Vec<Result<String, AppError>> = pool.install(|| {
+        tasks
+            .par_iter()
+            .map(|(i, start_time, end_time, output_path_str)| {
+                if cancel_flag.load(Ordering::SeqCst) {
+                    internal_cancel.store(true, Ordering::SeqCst);
+                }
+                if internal_cancel.load(Ordering::SeqCst) {
+                    return Err(AppError::Cancelled);
+                }
+
+                info!(
+                    "[EXPORT_CUSTOM_SEP] 导出片段 {}/{}: {:.2}s - {:.2}s",
+                    i + 1, total_segments, start_time, end_time
+                );
+
+                match ffmpeg::smart_cut_segment(
+                    &project.source_video_path,
+                    output_path_str,
+                    *start_time,
+                    *end_time,
+                    &[&cancel_flag, &internal_cancel],
+                    &project_id_clone,
+                    true,
+                ) {
+                    Ok(()) => {
+                        let completed = completed_count.fetch_add(1, Ordering::SeqCst) + 1;
+                        let new_progress = completed as f32 / total_segments as f32;
+                        let mut max_prog = max_progress_clone.lock().unwrap();
+                        if new_progress > *max_prog {
+                            *max_prog = new_progress;
+                            let _ = window_clone.emit("export-progress", serde_json::json!({
+                                "progress": new_progress,
+                                "message": format!("导出中: {}/{}", completed, total_segments),
+                                "project_id": project_id_clone
+                            }));
+                        }
+                        Ok(output_path_str.clone())
+                    }
+                    Err(e) => {
+                        error!(
+                            "[EXPORT_CUSTOM_SEP] 片段 {} ({:.2}s - {:.2}s) 导出失败: {}",
+                            i + 1, start_time, end_time, e
+                        );
+                        internal_cancel.store(true, Ordering::SeqCst);
+                        Err(e)
+                    }
+                }
+            })
+            .collect()
+    });
+
+    // 收集结果
+    let mut output_files: Vec<String> = Vec::with_capacity(total_segments);
+    let mut first_error: Option<AppError> = None;
+    for result in results {
+        match result {
+            Ok(path) => output_files.push(path),
+            Err(AppError::Cancelled) => {
+                if first_error.is_none() {
+                    first_error = Some(AppError::Cancelled);
+                }
+            }
+            Err(e) => {
+                if first_error.is_none() || matches!(first_error, Some(AppError::Cancelled)) {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+
+    if let Some(e) = first_error {
+        if !output_files.is_empty() {
+            info!("[EXPORT_CUSTOM_SEP] 导出失败，清理 {} 个已导出的文件", output_files.len());
+            for path in &output_files {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        return Err(e);
+    }
+
+    info!("[EXPORT_CUSTOM_SEP] 导出完成，共 {} 个文件", output_files.len());
+
+    let _ = window.emit("export-complete", serde_json::json!({
+        "output_dir": output_dir,
+        "exported_count": output_files.len(),
+        "project_id": project_id
+    }));
+
+    Ok(serde_json::json!({
+        "exported_count": output_files.len(),
+        "output_files": output_files
+    }))
+}
 #[tauri::command]
 pub async fn get_video_thumbnail(
     video_path: String,

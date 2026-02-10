@@ -55,6 +55,13 @@ export interface Segment {
   status: SegmentStatus;
 }
 
+// 自定义剪辑片段（临时，不持久化到数据库）
+export interface CustomClipSegment {
+  id: string;
+  start_time: number;
+  end_time: number;
+}
+
 // 项目
 export interface Project {
   id: string;

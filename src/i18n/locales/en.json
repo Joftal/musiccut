@@ -3,6 +3,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "delete": "Delete",
+    "edit": "Edit",
     "save": "Save",
     "search": "Search",
     "clear": "Clear",
@@ -31,8 +32,6 @@
     "selectMatchingMusic": "Select matching music",
     "selectedSongsCount": "{{count}} songs selected",
     "downloadModelFirst": "Please download model in Settings first",
-    "processingSpeed": "Processing speed",
-    "separationQuality": "Separation quality",
     "project": "Project",
     "cancelled": "Cancelled",
     "cancellingTask": "Cancelling previous task, please wait",
@@ -156,7 +155,13 @@
       "end": "End",
       "duration": "Duration",
       "markStartTime": "Mark current playback position as start time",
-      "markEndTime": "Mark current playback position as end time"
+      "markEndTime": "Mark current playback position as end time",
+      "addSegment": "Add Segment",
+      "updateSegment": "Update Segment",
+      "cancelEdit": "Cancel Edit",
+      "clipSegments": "{{count}} segment(s) added",
+      "exportSegments": "Export {{count}} segment(s)",
+      "exportSingleClip": "Export current selection directly"
     },
     "dialog": {
       "exportTitle": "Export Video",
@@ -169,7 +174,8 @@
       "outputDir": "Output Directory",
       "selectSavePath": "Select save location",
       "selectOutputDir": "Select output directory",
-      "exportHint": "Will export {{count}} segments in high quality re-encoding mode."
+      "exportHintMerged": "Merge {{count}} segments into one file. Lossless cut preferred, auto re-encode if needed.",
+      "exportHintSeparate": "Export {{count}} segments as separate files. Lossless cut preferred, auto re-encode if needed."
     },
     "toast": {
       "noModel": "No model available",
@@ -203,8 +209,11 @@
     "progress": {
       "generatingPreview": "Generating preview video (format not supported for direct playback)...",
       "exportingCustomClip": "Exporting custom clip...",
+      "exportingCustomClips": "Exporting custom clip segments...",
+      "preparing": "Preparing...",
       "extractingAudio": "Extracting audio...",
       "separatingVocals": "Separating vocals...",
+      "separationQueued": "Waiting for other project to finish vocal separation...",
       "matchingSegments": "Matching audio segments..."
     }
   },
@@ -241,11 +250,9 @@
     "separation": {
       "title": "Vocal Separation Settings",
       "model": "Separation Model",
-      "currentSelection": "Current Selection",
       "downloaded": "Downloaded",
       "downloading": "Downloading",
-      "trackSeparation": "{{count}}-track separation",
-      "modelHint": "Click \"Download\" to pre-download models. Higher speed rating means faster processing, higher quality rating means better separation."
+      "modelHint": "Click \"Download\" to pre-download models."
     },
     "log": {
       "title": "Log Settings",
@@ -320,6 +327,7 @@
   "stage": {
     "idle": "Idle",
     "extracting": "Extracting Audio",
+    "queued": "Queued",
     "separating": "Separating Vocals",
     "matching": "Matching",
     "analyzed": "Analyzed",

@@ -443,7 +443,7 @@ fn lossless_cut_segment(
 }
 
 /// 智能剪辑单个片段（优先无损，失败回退重编码）
-fn smart_cut_segment(
+pub(crate) fn smart_cut_segment(
     input_path: &str,
     output_path: &str,
     start: f64,
@@ -884,7 +884,7 @@ fn calculate_inverse_segments(segments: &[Segment], total_duration: f64) -> Vec<
 }
 
 /// 合并重叠片段
-fn merge_overlapping_segments(segments: &[(f64, f64)]) -> Vec<(f64, f64)> {
+pub(crate) fn merge_overlapping_segments(segments: &[(f64, f64)]) -> Vec<(f64, f64)> {
     if segments.is_empty() {
         return Vec::new();
     }
@@ -954,7 +954,7 @@ fn log_segment_filter_stats(segments: &[Segment], valid_count: usize) {
 /// 1. 尝试对所有片段进行无损剪辑
 /// 2. 如果任一片段无损失败，清理并全部重编码
 /// 3. 使用 concat demuxer 合并
-fn smart_concat_segments(
+pub(crate) fn smart_concat_segments(
     input_path: &str,
     output_path: &str,
     segments: &[(f64, f64)],

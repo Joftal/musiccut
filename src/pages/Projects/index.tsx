@@ -530,8 +530,11 @@ const Projects: React.FC = () => {
                 </div>
 
                 {/* 片段数量 */}
-                {project.segments.length > 0 && (
-                  <div className="absolute top-2 right-2 px-2 py-1 bg-primary-600 text-white text-xs rounded-full">
+                {(project.segments.length > 0 || projectStatus[project.id]?.stage === 'analyzed' || projectStatus[project.id]?.stage === 'exported') && (
+                  <div className={cn(
+                    "absolute top-2 right-2 px-2 py-1 text-white text-xs rounded-full",
+                    project.segments.length > 0 ? 'bg-primary-600' : 'bg-gray-500'
+                  )}>
                     {project.segments.length} {t('projects.segments')}
                   </div>
                 )}

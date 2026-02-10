@@ -3,6 +3,7 @@
     "cancel": "取消",
     "confirm": "确认",
     "delete": "删除",
+    "edit": "编辑",
     "save": "保存",
     "search": "搜索",
     "clear": "清除",
@@ -31,8 +32,6 @@
     "selectMatchingMusic": "选择匹配音乐",
     "selectedSongsCount": "已选择 {{count}} 首音乐",
     "downloadModelFirst": "请先在设置页下载模型",
-    "processingSpeed": "处理速度",
-    "separationQuality": "分离质量",
     "project": "项目",
     "cancelled": "已取消",
     "cancellingTask": "正在取消上一个任务，请稍候再试",
@@ -156,7 +155,13 @@
       "end": "结束",
       "duration": "时长",
       "markStartTime": "标记当前播放位置为开始时间",
-      "markEndTime": "标记当前播放位置为结束时间"
+      "markEndTime": "标记当前播放位置为结束时间",
+      "addSegment": "添加片段",
+      "updateSegment": "更新片段",
+      "cancelEdit": "取消编辑",
+      "clipSegments": "已添加 {{count}} 个片段",
+      "exportSegments": "导出 {{count}} 个片段",
+      "exportSingleClip": "直接导出当前选择范围"
     },
     "dialog": {
       "exportTitle": "导出视频",
@@ -169,7 +174,8 @@
       "outputDir": "输出目录",
       "selectSavePath": "选择保存位置",
       "selectOutputDir": "选择输出目录",
-      "exportHint": "将以高质量重编码模式导出 {{count}} 个片段。"
+      "exportHintMerged": "将 {{count}} 个片段合并导出为一个文件，优先无损剪辑，必要时自动重编码。",
+      "exportHintSeparate": "将 {{count}} 个片段分别导出为独立文件，优先无损剪辑，必要时自动重编码。"
     },
     "toast": {
       "noModel": "无可用模型",
@@ -203,8 +209,11 @@
     "progress": {
       "generatingPreview": "正在生成预览视频（视频格式不支持直接播放）...",
       "exportingCustomClip": "导出自定义剪辑中...",
+      "exportingCustomClips": "导出自定义剪辑片段中...",
+      "preparing": "准备中...",
       "extractingAudio": "提取音频中...",
       "separatingVocals": "人声分离中...",
+      "separationQueued": "等待其他项目完成人声分离...",
       "matchingSegments": "匹配音频片段中..."
     }
   },
@@ -241,11 +250,9 @@
     "separation": {
       "title": "人声分离设置",
       "model": "分离模型",
-      "currentSelection": "当前选择",
       "downloaded": "已下载",
       "downloading": "下载中",
-      "trackSeparation": "{{count}} 轨分离",
-      "modelHint": "点击\"下载\"按钮预先下载模型。速度评分越高处理越快，质量评分越高分离效果越好。"
+      "modelHint": "点击\"下载\"按钮预先下载模型。"
     },
     "log": {
       "title": "日志设置",
@@ -320,6 +327,7 @@
   "stage": {
     "idle": "空闲",
     "extracting": "提取音频",
+    "queued": "排队等待",
     "separating": "分离人声",
     "matching": "匹配中",
     "analyzed": "已分析",

@@ -184,6 +184,22 @@ export async function exportCustomClip(
   return invoke('export_custom_clip', { projectId, startTime, endTime, outputPath });
 }
 
+export async function exportCustomClipsMerged(
+  projectId: string,
+  segments: Array<{ start_time: number; end_time: number }>,
+  outputPath: string
+): Promise<string> {
+  return invoke('export_custom_clips_merged', { projectId, segments, outputPath });
+}
+
+export async function exportCustomClipsSeparately(
+  projectId: string,
+  segments: Array<{ start_time: number; end_time: number }>,
+  outputDir: string
+): Promise<{ exported_count: number; output_files: string[] }> {
+  return invoke('export_custom_clips_separately', { projectId, segments, outputDir });
+}
+
 export async function getVideoThumbnail(
   videoPath: string,
   outputPath: string,
@@ -414,6 +430,14 @@ export function onSeparationProgress(
 ): Promise<UnlistenFn> {
   return listen('separation-progress', (event) => {
     callback(event.payload as ProgressInfo);
+  });
+}
+
+export function onSeparationQueued(
+  callback: (data: { project_id: string; message: string }) => void
+): Promise<UnlistenFn> {
+  return listen('separation-queued', (event) => {
+    callback(event.payload as { project_id: string; message: string });
   });
 }
 
