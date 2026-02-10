@@ -106,15 +106,60 @@ jobs:
           PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || echo "")
 
           if [ -z "$PREV_TAG" ]; then
-            # 如果没有上一个 tag，获取该 tag 最近 20 条提交
-            COMMITS=$(git log --pretty=format:"- %s" -20 "${CURRENT_TAG}")
+            COMMITS=$(git log --pretty=format:"%s" -20 "${CURRENT_TAG}")
           else
-            # 获取两个 tag 之间的提交
-            COMMITS=$(git log --pretty=format:"- %s" "${PREV_TAG}..${CURRENT_TAG}")
+            COMMITS=$(git log --pretty=format:"%s" "${PREV_TAG}..${CURRENT_TAG}")
           fi
 
-          # 写入到文件避免多行问题
-          echo "$COMMITS" > changelog.txt
+          # 按 commit message 前缀分类
+          FEAT=""
+          FIX=""
+          PERF=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            # 匹配常见前缀（中英文）
+            if echo "$line" | grep -qiE '^(feat|新增|添加|add|新功能)'; then
+              FEAT="${FEAT}- ${line}\n"
+            elif echo "$line" | grep -qiE '^(fix|修复|修正|bugfix)'; then
+              FIX="${FIX}- ${line}\n"
+            elif echo "$line" | grep -qiE '^(perf|优化|refactor|重构|改进|improve|chore|update|升级)'; then
+              PERF="${PERF}- ${line}\n"
+            else
+              OTHER="${OTHER}- ${line}\n"
+            fi
+          done <<< "$COMMITS"
+
+          # 组装分类后的 changelog
+          {
+            if [ -n "$FEAT" ]; then
+              echo "### ✨ 新功能"
+              echo ""
+              echo -e "$FEAT"
+            fi
+            if [ -n "$FIX" ]; then
+              echo "### 🐛 修复"
+              echo ""
+              echo -e "$FIX"
+            fi
+            if [ -n "$PERF" ]; then
+              echo "### 🔧 优化与重构"
+              echo ""
+              echo -e "$PERF"
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### 📦 其他"
+              echo ""
+              echo -e "$OTHER"
+            fi
+          } > changelog.txt
+
+          # 如果分类后为空（无 commit），写入默认内容
+          if [ ! -s changelog.txt ]; then
+            echo "- Initial release" > changelog.txt
+          fi
+
           echo "Generated changelog (${PREV_TAG:-beginning}..${CURRENT_TAG}):"
           cat changelog.txt
 
@@ -383,51 +428,84 @@ jobs:
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: List downloaded artifacts
+      - name: Calculate artifact sizes
+        id: sizes
         run: |
           echo "=== Downloaded Artifacts ==="
-          echo "Full directory structure:"
           find artifacts -type f
-          echo ""
-          echo "7z files:"
-          find artifacts -type f -name "*.7z*" | while read f; do
-            size=$(du -h "$f" | cut -f1)
-            echo "$f - $size"
+
+          # 计算 FFmpeg 包总大小
+          FFMPEG_SIZE=0
+          for f in $(find artifacts -type f -name "*FFmpeg.7z*" ! -name "*NoFFmpeg*"); do
+            s=$(stat --format="%s" "$f")
+            FFMPEG_SIZE=$((FFMPEG_SIZE + s))
           done
+          FFMPEG_MB=$(awk "BEGIN {printf \"%.1f\", $FFMPEG_SIZE / 1048576}")
+          FFMPEG_PARTS=$(find artifacts -type f -name "*FFmpeg.7z*" ! -name "*NoFFmpeg*" | wc -l)
+
+          # 计算 NoFFmpeg 包总大小
+          NOFFMPEG_SIZE=0
+          for f in $(find artifacts -type f -name "*NoFFmpeg.7z*"); do
+            s=$(stat --format="%s" "$f")
+            NOFFMPEG_SIZE=$((NOFFMPEG_SIZE + s))
+          done
+          NOFFMPEG_MB=$(awk "BEGIN {printf \"%.1f\", $NOFFMPEG_SIZE / 1048576}")
+          NOFFMPEG_PARTS=$(find artifacts -type f -name "*NoFFmpeg.7z*" | wc -l)
+
+          echo "ffmpeg_size=${FFMPEG_MB} MB" >> $GITHUB_OUTPUT
+          echo "ffmpeg_parts=${FFMPEG_PARTS}" >> $GITHUB_OUTPUT
+          echo "noffmpeg_size=${NOFFMPEG_MB} MB" >> $GITHUB_OUTPUT
+          echo "noffmpeg_parts=${NOFFMPEG_PARTS}" >> $GITHUB_OUTPUT
+
+          echo "FFmpeg: ${FFMPEG_MB} MB (${FFMPEG_PARTS} parts)"
+          echo "NoFFmpeg: ${NOFFMPEG_MB} MB (${NOFFMPEG_PARTS} parts)"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.tag }}
-          name: MusicCut ${{ needs.build.outputs.tag }}
+          name: "🎵 MusicCut ${{ needs.build.outputs.tag }}"
           body: |
-            ## 更新日志
+            ![Windows](https://img.shields.io/badge/platform-Windows_x64-0078D4?logo=windows&logoColor=white)
+            ![Version](https://img.shields.io/badge/version-${{ needs.build.outputs.version }}-brightgreen)
+            ![Tauri](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=white)
+
+            ---
+
+            ## 📋 更新日志
 
             ${{ steps.changelog.outputs.content }}
 
             ---
 
-            ## 下载说明
+            ## 📥 下载说明
 
-            | 版本 | 说明 | 适用场景 |
-            |:---:|:---|:---|
-            | **FFmpeg** | 完整版，包含 FFmpeg（分卷压缩） | 推荐大多数用户使用 |
-            | **NoFFmpeg** | 精简版，不含 FFmpeg（分卷压缩） | 已安装 FFmpeg 的用户 |
+            | 版本 | 说明 | 大小 | 分卷数 | 适用场景 |
+            |:---:|:---|:---:|:---:|:---|
+            | **🟢 FFmpeg 完整版** | 包含 FFmpeg + fpcalc | `${{ steps.sizes.outputs.ffmpeg_size }}` | ${{ steps.sizes.outputs.ffmpeg_parts }} | ✅ **推荐大多数用户** |
+            | **🔵 NoFFmpeg 精简版** | 不含 FFmpeg（需自行安装） | `${{ steps.sizes.outputs.noffmpeg_size }}` | ${{ steps.sizes.outputs.noffmpeg_parts }} | 已安装 FFmpeg 的用户 |
 
-            ## 使用方法
+            ## 🚀 快速开始
 
-            1. 下载对应版本的压缩文件
-            2. 解压到任意目录
+            1. 下载对应版本的 **所有** `.7z.001`、`.7z.002`... 分卷文件
+            2. 将所有分卷放在同一目录，解压 `.001` 文件即可自动合并
             3. 运行 `MusicCut.exe`
 
-            > ⚠️ **两个版本均为分卷压缩**：请下载同一版本的所有 `.7z.001`、`.7z.002`... 等文件，放在同一目录后，解压 `.001` 文件即可自动合并。
+            > ⚠️ **重要提示**：两个版本均为分卷压缩，请务必下载同一版本的所有分卷文件后再解压。
 
-            ## NoFFmpeg 版本说明
+            <details>
+            <summary>📖 NoFFmpeg 版本配置指南</summary>
 
-            NoFFmpeg 版本需要自行安装 FFmpeg：
-            - 下载 [FFmpeg](https://www.gyan.dev/ffmpeg/builds/)
-            - 下载 [fpcalc](https://acoustid.org/chromaprint)
-            - 将 `ffmpeg.exe`、`ffprobe.exe`、`fpcalc.exe` 放入程序目录的 `ffmpeg` 文件夹，或添加到系统 PATH
+            NoFFmpeg 版本需要自行安装以下组件：
+
+            | 组件 | 下载地址 |
+            |:---|:---|
+            | FFmpeg（含 ffprobe） | [gyan.dev/ffmpeg](https://www.gyan.dev/ffmpeg/builds/) |
+            | fpcalc (Chromaprint) | [acoustid.org/chromaprint](https://acoustid.org/chromaprint) |
+
+            将 `ffmpeg.exe`、`ffprobe.exe`、`fpcalc.exe` 放入程序目录的 `ffmpeg` 文件夹，或添加到系统 PATH。
+
+            </details>
           files: |
             artifacts/**/*.7z*
           draft: false
