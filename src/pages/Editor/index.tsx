@@ -1472,13 +1472,13 @@ const Editor: React.FC = () => {
         >
           {/* 片段显示（非自定义剪辑模式或作为背景参考） */}
           {duration > 0 && segments.map((segment, index) => {
+            if (segment.status === 'removed') return null;
             const accentColors = getSegmentAccentColors(index);
             return (
               <div
                 key={segment.id}
                 className={cn(
                   'absolute top-0 h-full border-l border-r group',
-                  segment.status === 'removed' && 'opacity-50',
                   !customClipMode && 'cursor-pointer',
                   !customClipMode && selectedSegment?.id === segment.id && 'ring-2 ring-primary-500 ring-inset z-[5]',
                   customClipMode && 'opacity-30 pointer-events-none'
