@@ -464,6 +464,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: "🎵 MusicCut ${{ needs.build.outputs.tag }}"
           body: |
             ![Windows](https://img.shields.io/badge/platform-Windows_x64-0078D4?logo=windows&logoColor=white)
