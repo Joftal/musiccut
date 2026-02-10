@@ -85,10 +85,11 @@ jobs:
 
             echo "版本递增: $LATEST_TAG -> $TAG_NAME ($BUMP)"
 
-            # 创建并推送 tag
+            # 仅创建本地 tag（用于 changelog 生成），不推送到远程
+            # tag 将由 release job 中的 softprops/action-gh-release 创建
+            # 这样 target_commitish 才能正确关联到触发构建的分支
             git tag "$TAG_NAME"
-            git push origin "$TAG_NAME"
-            echo "Tag $TAG_NAME 已创建并推送"
+            echo "本地 Tag $TAG_NAME 已创建（将由 release job 推送）"
           fi
 
           echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
