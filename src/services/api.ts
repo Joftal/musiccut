@@ -433,6 +433,14 @@ export function onSeparationProgress(
   });
 }
 
+export function onSeparationQueued(
+  callback: (data: { project_id: string; message: string }) => void
+): Promise<UnlistenFn> {
+  return listen('separation-queued', (event) => {
+    callback(event.payload as { project_id: string; message: string });
+  });
+}
+
 export function onSeparationComplete(
   callback: (result: SeparationResult) => void
 ): Promise<UnlistenFn> {

@@ -27,6 +27,10 @@ lazy_static::lazy_static! {
 // GPU 能力缓存（整个应用生命周期只检测一次）
 static GPU_CAPS_CACHE: std::sync::OnceLock<GpuCapabilities> = std::sync::OnceLock::new();
 
+/// GPU 信号量：同一时间只允许一个人声分离任务使用 GPU，避免多项目并行时 GPU OOM
+static GPU_SEMAPHORE: once_cell::sync::Lazy<tokio::sync::Semaphore> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(1));
+
 /// RAII 守卫：作用域结束时自动清理取消标志，防止内存泄漏
 struct CancelFlagGuard {
     project_id: String,
@@ -360,6 +364,44 @@ pub async fn separate_vocals(
     let cancel_flag_id = project_id.clone().unwrap_or_else(|| "default".to_string());
     let _guard = CancelFlagGuard::new(cancel_flag_id.clone());
     let cancel_flag = reset_cancel_flag(&cancel_flag_id);
+
+    // GPU 信号量排队：同一时间只允许一个分离任务运行，避免 GPU OOM
+    let _permit = match GPU_SEMAPHORE.try_acquire() {
+        Ok(permit) => {
+            info!("[GPU_QUEUE] 直接获取 GPU 许可: project_id={}", cancel_flag_id);
+            permit
+        }
+        Err(_) => {
+            info!("[GPU_QUEUE] GPU 繁忙，排队等待: project_id={}", cancel_flag_id);
+            let _ = window.emit("separation-queued", serde_json::json!({
+                "project_id": project_id,
+                "message": "等待其他项目完成人声分离..."
+            }));
+
+            // 等待信号量，同时轮询取消标志
+            loop {
+                tokio::select! {
+                    result = GPU_SEMAPHORE.acquire() => {
+                        match result {
+                            Ok(permit) => {
+                                info!("[GPU_QUEUE] 排队结束，获取 GPU 许可: project_id={}", cancel_flag_id);
+                                break permit;
+                            }
+                            Err(_) => {
+                                return Err(AppError::VocalSeparation("GPU 信号量异常关闭".to_string()));
+                            }
+                        }
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {
+                        if cancel_flag.load(Ordering::SeqCst) {
+                            info!("[GPU_QUEUE] 排队等待中被取消: project_id={}", cancel_flag_id);
+                            return Err(AppError::Cancelled);
+                        }
+                    }
+                }
+            }
+        }
+    };
 
     let config = config::get_config();
 
