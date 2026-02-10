@@ -212,8 +212,10 @@
       "generatingPreview": "正在生成预览视频（视频格式不支持直接播放）...",
       "exportingCustomClip": "导出自定义剪辑中...",
       "exportingCustomClips": "导出自定义剪辑片段中...",
+      "preparing": "准备中...",
       "extractingAudio": "提取音频中...",
       "separatingVocals": "人声分离中...",
+      "separationQueued": "等待其他项目完成人声分离...",
       "matchingSegments": "匹配音频片段中..."
     }
   },
@@ -329,6 +331,7 @@
   "stage": {
     "idle": "空闲",
     "extracting": "提取音频",
+    "queued": "排队等待",
     "separating": "分离人声",
     "matching": "匹配中",
     "analyzed": "已分析",

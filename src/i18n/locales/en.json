@@ -212,8 +212,10 @@
       "generatingPreview": "Generating preview video (format not supported for direct playback)...",
       "exportingCustomClip": "Exporting custom clip...",
       "exportingCustomClips": "Exporting custom clip segments...",
+      "preparing": "Preparing...",
       "extractingAudio": "Extracting audio...",
       "separatingVocals": "Separating vocals...",
+      "separationQueued": "Waiting for other project to finish vocal separation...",
       "matchingSegments": "Matching audio segments..."
     }
   },
@@ -329,6 +331,7 @@
   "stage": {
     "idle": "Idle",
     "extracting": "Extracting Audio",
+    "queued": "Queued",
     "separating": "Separating Vocals",
     "matching": "Matching",
     "analyzed": "Analyzed",

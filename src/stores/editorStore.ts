@@ -87,7 +87,7 @@ interface EditorState {
   // 处理状态
   setProcessing: (processing: boolean, message?: string) => void;
   setProcessingProgress: (progress: number) => void;
-  setProcessingProgressForProject: (projectId: string, progress: number) => void;
+  setProcessingProgressForProject: (projectId: string, progress: number, message?: string) => void;
 
   // 文件路径
   setAudioPath: (path: string | null) => void;
@@ -140,11 +140,16 @@ export const useEditorStore = create<EditorState>((set, get) => {
       useCustomMusicLibrary: get().useCustomMusicLibrary,
       selectedMusicIds: get().selectedMusicIds,
     });
-    set({
-      processing: true,
-      processingMessage: message,
-      projectProcessingStates: states,
-    });
+    // 只有当前项目才更新全局显示状态
+    if (get().currentProject?.id === projectId) {
+      set({
+        processing: true,
+        processingMessage: message,
+        projectProcessingStates: states,
+      });
+    } else {
+      set({ projectProcessingStates: states });
+    }
   };
 
   // 辅助函数：完成处理任务
@@ -156,7 +161,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       set({
         processing: false,
         cancellingProjectId: null,
-        processingMessage: wasCancelled || isCancellingThisProject ? i18n.t('common.cancelled') : '',
+        processingMessage: wasCancelled || isCancellingThisProject ? 'common.cancelled' : '',
       });
     } else {
       const states = new Map(get().projectProcessingStates);
@@ -186,13 +191,19 @@ export const useEditorStore = create<EditorState>((set, get) => {
     set({ projectProcessingStates: states });
   };
 
-  // 辅助函数：检查是否可以开始新任务
-  const canStartProcessing = () => {
-    const { processing, cancellingProjectId, currentProject } = get();
-    if (cancellingProjectId && cancellingProjectId === currentProject?.id) {
+  // 辅助函数：检查指定项目是否可以开始新任务
+  const canStartProcessing = (projectId: string) => {
+    const { cancellingProjectId, currentProject, projectProcessingStates } = get();
+    // 该项目正在取消中，不允许启动
+    if (cancellingProjectId === projectId) {
       throw new Error(i18n.t('common.cancellingTask'));
     }
-    if (processing) {
+    // 检查该项目是否已有任务在执行
+    if (currentProject?.id === projectId && get().processing) {
+      throw new Error(i18n.t('common.taskRunning'));
+    }
+    const cachedState = projectProcessingStates.get(projectId);
+    if (cachedState?.processing) {
       throw new Error(i18n.t('common.taskRunning'));
     }
     return true;
@@ -273,6 +284,42 @@ export const useEditorStore = create<EditorState>((set, get) => {
     // 恢复目标项目的完整处理状态
     const savedState = get().projectProcessingStates.get(id);
 
+    // 恢复后删除该项目的缓存条目（已成为当前项目，状态由全局字段管理）
+    const cleanedStates = new Map(get().projectProcessingStates);
+    cleanedStates.delete(id);
+
+    // 确定最终的处理状态
+    // 优先使用 projectProcessingStates 缓存（由 editorStore 的 pipeline 函数维护）
+    // 缓存缺失时（如任务在后台完成后被清理），回退到 projectStore.projectStatus
+    // （projectStore 的全局监听器始终活跃，即使 Editor 组件卸载期间也能接收后端事件）
+    let restoredProcessing = savedState?.processing ?? false;
+    let restoredMessage = savedState?.processingMessage ?? '';
+    let restoredProgress = savedState?.processingProgress ?? 0;
+
+    if (!savedState) {
+      // 缓存不存在（可能被 matchSegments 完成后清理，或从未创建）
+      // 从 projectStore 获取实时状态作为兜底
+      const projectStatus = useProjectStore.getState().projectStatus[id];
+      const isActiveInProjectStore = projectStatus &&
+        projectStatus.stage !== 'idle' &&
+        projectStatus.stage !== 'analyzed' &&
+        projectStatus.stage !== 'exported' &&
+        projectStatus.progress < 1;
+
+      if (isActiveInProjectStore) {
+        restoredProcessing = true;
+        restoredProgress = projectStatus.progress;
+        const stageMessageMap: Record<string, string> = {
+          extracting: 'editor.progress.extractingAudio',
+          separating: 'editor.progress.separatingVocals',
+          matching: 'editor.progress.matchingSegments',
+          exporting: 'common.exportingVideo',
+          queued: 'editor.progress.separationQueued',
+        };
+        restoredMessage = stageMessageMap[projectStatus.stage] || '';
+      }
+    }
+
     set({
       currentProject: project,
       segments: project.segments,
@@ -280,10 +327,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
       selectedSegment: null,
       playbackPosition: 0,
       isPlaying: false,
-      // 恢复处理状态（从缓存恢复）
-      processing: savedState?.processing ?? false,
-      processingMessage: savedState?.processingMessage ?? '',
-      processingProgress: savedState?.processingProgress ?? 0,
+      // 恢复处理状态
+      processing: restoredProcessing,
+      processingMessage: restoredMessage,
+      processingProgress: restoredProgress,
       // 恢复中间文件路径
       audioPath: savedState?.audioPath ?? null,
       vocalsPath: savedState?.vocalsPath ?? null,
@@ -291,6 +338,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // 恢复自定义音乐库选择状态
       useCustomMusicLibrary: savedState?.useCustomMusicLibrary ?? false,
       selectedMusicIds: savedState?.selectedMusicIds ?? [],
+      // 清理已恢复的缓存条目
+      projectProcessingStates: cleanedStates,
     });
 
     return project;
@@ -438,20 +487,25 @@ export const useEditorStore = create<EditorState>((set, get) => {
     set({ processingProgress: progress });
   },
 
-  setProcessingProgressForProject: (projectId: string, progress: number) => {
+  setProcessingProgressForProject: (projectId: string, progress: number, message?: string) => {
     const currentId = get().currentProject?.id;
     if (currentId === projectId) {
       // 当前项目，直接更新显示
-      set({ processingProgress: progress });
-    } else {
-      // 非当前项目，更新缓存
-      const states = new Map(get().projectProcessingStates);
-      const state = states.get(projectId);
-      if (state) {
-        state.processingProgress = progress;
-        states.set(projectId, state);
-        set({ projectProcessingStates: states });
+      if (message !== undefined) {
+        set({ processingProgress: progress, processingMessage: message });
+      } else {
+        set({ processingProgress: progress });
       }
+    } else {
+      // 非当前项目，更新缓存（如果缓存条目不存在则创建，避免丢失进度）
+      const states = new Map(get().projectProcessingStates);
+      const state = states.get(projectId) || createDefaultProcessingState({ processing: true });
+      state.processingProgress = progress;
+      if (message !== undefined) {
+        state.processingMessage = message;
+      }
+      states.set(projectId, state);
+      set({ projectProcessingStates: states });
     }
   },
 
@@ -468,18 +522,17 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   extractAudio: async (outputPath: string, projectId: string, videoPath: string) => {
-    // 检查是否可以开始新任务
-    canStartProcessing();
+    // 注意：不再调用 canStartProcessing，由 handleStartProcessing 在 pipeline 入口统一检查
 
     // 设置当前项目的处理状态（如果是当前项目）
     if (get().currentProject?.id === projectId) {
-      set({ processing: true, processingMessage: i18n.t('editor.progress.extractingAudio') });
+      set({ processing: true, processingMessage: 'editor.progress.extractingAudio' });
     } else {
       // 更新缓存中的处理状态
       const states = new Map(get().projectProcessingStates);
       const state = states.get(projectId) || createDefaultProcessingState();
       state.processing = true;
-      state.processingMessage = i18n.t('editor.progress.extractingAudio');
+      state.processingMessage = 'editor.progress.extractingAudio';
       states.set(projectId, state);
       set({ projectProcessingStates: states });
     }
@@ -488,16 +541,13 @@ export const useEditorStore = create<EditorState>((set, get) => {
       await api.extractAudio(videoPath, outputPath, projectId);
       // 检查项目是否是当前项目
       if (get().currentProject?.id === projectId) {
-        // 当前项目，直接更新显示
-        set({ audioPath: outputPath, processing: false });
+        // 当前项目，更新路径（不重置 processing，由 pipeline 最后一步负责）
+        set({ audioPath: outputPath });
       } else {
-        // 非当前项目，将结果保存到缓存
+        // 非当前项目，将结果保存到缓存（不重置 processing，pipeline 继续）
         const states = new Map(get().projectProcessingStates);
         const state = states.get(projectId) || createDefaultProcessingState();
         state.audioPath = outputPath;
-        state.processing = false;
-        state.processingMessage = '';
-        state.processingProgress = 0;
         states.set(projectId, state);
         set({ projectProcessingStates: states });
       }
@@ -510,17 +560,17 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   separateVocals: async (outputDir: string, projectId: string, audioPath: string, acceleration?: string) => {
-    // 检查是否可以开始新任务
-    canStartProcessing();
+    // 注意：不再调用 canStartProcessing，由 handleStartProcessing 在 pipeline 入口统一检查，
+    // 且前序步骤完成后 processing 保持为 true，canStartProcessing 会误判
 
     // 设置处理状态
     if (get().currentProject?.id === projectId) {
-      set({ processing: true, processingMessage: i18n.t('editor.progress.separatingVocals') });
+      set({ processing: true, processingMessage: 'editor.progress.separatingVocals' });
     } else {
       const states = new Map(get().projectProcessingStates);
       const state = states.get(projectId) || createDefaultProcessingState();
       state.processing = true;
-      state.processingMessage = i18n.t('editor.progress.separatingVocals');
+      state.processingMessage = 'editor.progress.separatingVocals';
       states.set(projectId, state);
       set({ projectProcessingStates: states });
     }
@@ -529,21 +579,17 @@ export const useEditorStore = create<EditorState>((set, get) => {
       const result = await api.separateVocals(audioPath, outputDir, acceleration, projectId);
       // 检查项目是否是当前项目
       if (get().currentProject?.id === projectId) {
-        // 当前项目，直接更新显示
+        // 当前项目，更新路径（不重置 processing，由 pipeline 最后一步负责）
         set({
           vocalsPath: result.vocals_path,
           accompanimentPath: result.accompaniment_path,
-          processing: false,
         });
       } else {
-        // 非当前项目，将结果保存到缓存
+        // 非当前项目，将结果保存到缓存（不重置 processing，pipeline 继续）
         const states = new Map(get().projectProcessingStates);
         const state = states.get(projectId) || createDefaultProcessingState();
         state.vocalsPath = result.vocals_path;
         state.accompanimentPath = result.accompaniment_path;
-        state.processing = false;
-        state.processingMessage = '';
-        state.processingProgress = 0;
         states.set(projectId, state);
         set({ projectProcessingStates: states });
       }
@@ -566,17 +612,17 @@ export const useEditorStore = create<EditorState>((set, get) => {
       console.log('[matchSegments] 使用全部音乐库');
     }
 
-    // 检查是否可以开始新任务
-    canStartProcessing();
+    // 注意：不再调用 canStartProcessing，由 handleStartProcessing 在 pipeline 入口统一检查，
+    // 且前序步骤完成后 processing 保持为 true，canStartProcessing 会误判
 
     // 设置处理状态
     if (get().currentProject?.id === projectId) {
-      set({ processing: true, processingMessage: i18n.t('editor.progress.matchingSegments') });
+      set({ processing: true, processingMessage: 'editor.progress.matchingSegments' });
     } else {
       const states = new Map(get().projectProcessingStates);
       const state = states.get(projectId) || createDefaultProcessingState();
       state.processing = true;
-      state.processingMessage = i18n.t('editor.progress.matchingSegments');
+      state.processingMessage = 'editor.progress.matchingSegments';
       states.set(projectId, state);
       set({ projectProcessingStates: states });
     }
@@ -591,7 +637,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // 检查项目是否是当前项目
       if (get().currentProject?.id === projectId) {
         // 当前项目，直接更新显示
-        set({ segments, processing: false });
+        set({ segments, processing: false, processingMessage: '', processingProgress: 0 });
       } else {
         // 非当前项目，将结果保存到后端
         // 这样当用户切换回该项目时，loadProject 会加载这些 segments
@@ -620,15 +666,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
     const { currentProject, segments } = get();
     if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
-    // 检查是否可以开始新任务
-    canStartProcessing();
-
     const projectId = currentProject.id;
+
+    // 检查是否可以开始新任务
+    canStartProcessing(projectId);
 
     // 先保存 segments 到数据库，确保后端使用最新数据
     await api.updateSegments(projectId, segments);
 
-    startProcessingTask(projectId, i18n.t('common.cuttingVideo'));
+    startProcessingTask(projectId, 'common.cuttingVideo');
 
     let wasCancelled = false;
     try {
@@ -650,15 +696,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
     const { currentProject, segments } = get();
     if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
-    // 检查是否可以开始新任务
-    canStartProcessing();
-
     const projectId = currentProject.id;
+
+    // 检查是否可以开始新任务
+    canStartProcessing(projectId);
 
     // 先保存 segments 到数据库，确保后端使用最新数据
     await api.updateSegments(projectId, segments);
 
-    startProcessingTask(projectId, i18n.t('common.exportingVideo'));
+    startProcessingTask(projectId, 'common.exportingVideo');
 
     let wasCancelled = false;
     try {
@@ -676,15 +722,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
     const { currentProject, segments } = get();
     if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
-    // 检查是否可以开始新任务
-    canStartProcessing();
-
     const projectId = currentProject.id;
+
+    // 检查是否可以开始新任务
+    canStartProcessing(projectId);
 
     // 先保存 segments 到数据库，确保后端使用最新数据
     await api.updateSegments(projectId, segments);
 
-    startProcessingTask(projectId, i18n.t('common.exportingSegments'));
+    startProcessingTask(projectId, 'common.exportingSegments');
 
     let wasCancelled = false;
     try {

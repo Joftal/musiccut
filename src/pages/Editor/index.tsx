@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/Input';
 import { TimeInput } from '@/components/ui/TimeInput';
 import { MusicSelector } from '@/components/MusicSelector';
 import { useEditorStore } from '@/stores/editorStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { useSystemStore } from '@/stores/systemStore';
 import { useModelStore } from '@/stores/modelStore';
@@ -99,7 +100,6 @@ const Editor: React.FC = () => {
     exportVideo,
     exportVideoSeparately,
     cancelProcessing,
-    setProcessingProgress,
     // 自定义剪辑模式
     customClipMode,
     customClipStart,
@@ -124,6 +124,7 @@ const Editor: React.FC = () => {
 
   const { musicList, loadMusicLibrary } = useMusicStore();
   const { config, loadConfig, updateConfig } = useSystemStore();
+  const initProgressListeners = useProjectStore((state) => state.initProgressListeners);
   const {
     models,
     loadAll: loadModels,
@@ -168,6 +169,12 @@ const Editor: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showSegmentList]);
 
+  // 确保 projectStore 的全局进度监听器已初始化（即使用户未先访问项目列表页）
+  useEffect(() => {
+    const cleanup = initProgressListeners();
+    return cleanup;
+  }, [initProgressListeners]);
+
   // 加载项目
   useEffect(() => {
     // 立即重置选中片段，避免显示上一次的选中状态
@@ -211,11 +218,41 @@ const Editor: React.FC = () => {
     const unlisteners: (() => void)[] = [];
 
     const setupListeners = async () => {
+      const unlistenQueued = await api.onSeparationQueued((data) => {
+        if (!mounted) return;
+        const state = useEditorStore.getState();
+        const currentProjectId = state.currentProject?.id;
+        if (data.project_id === currentProjectId) {
+          useEditorStore.setState({
+            processingMessage: 'editor.progress.separationQueued',
+          });
+        } else if (data.project_id) {
+          const states = new Map(state.projectProcessingStates);
+          const cached = states.get(data.project_id) || {
+            audioPath: null, vocalsPath: null, accompanimentPath: null,
+            processing: true, processingMessage: '', processingProgress: 0,
+            useCustomMusicLibrary: false, selectedMusicIds: [],
+          };
+          cached.processing = true;
+          cached.processingMessage = 'editor.progress.separationQueued';
+          states.set(data.project_id, cached);
+          useEditorStore.setState({ projectProcessingStates: states });
+        }
+      });
+      if (mounted) {
+        unlisteners.push(unlistenQueued);
+      } else {
+        unlistenQueued();
+      }
+
       const unlisten1 = await api.onSeparationProgress((progress) => {
         if (!mounted) return;
-        const currentProjectId = useEditorStore.getState().currentProject?.id;
-        if (progress.project_id === currentProjectId) {
-          setProcessingProgress(progress.progress);
+        if (progress.project_id) {
+          useEditorStore.getState().setProcessingProgressForProject(
+            progress.project_id,
+            progress.progress,
+            'editor.progress.separatingVocals',
+          );
         }
       });
       if (mounted) {
@@ -226,9 +263,12 @@ const Editor: React.FC = () => {
 
       const unlisten2 = await api.onMatchingProgress((progress) => {
         if (!mounted) return;
-        const currentProjectId = useEditorStore.getState().currentProject?.id;
-        if (progress.project_id === currentProjectId) {
-          setProcessingProgress(progress.progress);
+        if (progress.project_id) {
+          useEditorStore.getState().setProcessingProgressForProject(
+            progress.project_id,
+            progress.progress,
+            'editor.progress.matchingSegments',
+          );
         }
       });
       if (mounted) {
@@ -239,9 +279,12 @@ const Editor: React.FC = () => {
 
       const unlisten3 = await api.onExportProgress((progress) => {
         if (!mounted) return;
-        const currentProjectId = useEditorStore.getState().currentProject?.id;
-        if (progress.project_id === currentProjectId) {
-          setProcessingProgress(progress.progress);
+        if (progress.project_id) {
+          useEditorStore.getState().setProcessingProgressForProject(
+            progress.project_id,
+            progress.progress,
+            'common.exportingVideo',
+          );
         }
       });
       if (mounted) {
@@ -526,7 +569,7 @@ const Editor: React.FC = () => {
 
     // 使用全局处理状态
     const { setProcessing, setProcessingProgress } = useEditorStore.getState();
-    setProcessing(true, t('editor.progress.exportingCustomClip'));
+    setProcessing(true, 'editor.progress.exportingCustomClip');
 
     try {
       await api.exportCustomClip(currentProject.id, start, end, savePath);
@@ -662,6 +705,27 @@ const Editor: React.FC = () => {
     const projectName = currentProject.name;
     const videoPath = currentProject.source_video_path;
 
+    // 检查是否可以开始新任务（防止重复启动，包括缓存命中路径的竞态）
+    {
+      const state = useEditorStore.getState();
+      if (state.cancellingProjectId === projectId) {
+        addToast({ type: 'warning', title: t('common.cancellingTask') });
+        return;
+      }
+      if (state.processing) {
+        addToast({ type: 'warning', title: t('common.taskRunning') });
+        return;
+      }
+      const cached = state.projectProcessingStates.get(projectId);
+      if (cached?.processing) {
+        addToast({ type: 'warning', title: t('common.taskRunning') });
+        return;
+      }
+    }
+
+    // 立即标记为处理中，防止缓存命中路径下 checkCacheStatus 异步期间的竞态窗口
+    useEditorStore.getState().setProcessing(true, 'editor.progress.preparing');
+
     try {
       // 使用应用临时目录存放中间文件
       const tempDir = appDir ? await join(appDir, 'temp') : '';
@@ -726,6 +790,24 @@ const Editor: React.FC = () => {
         description: t('editor.toast.segmentsDetected', { count: segmentCount }),
       });
     } catch (error) {
+      // 确保 processing 状态被重置（pipeline 步骤的 catch 已各自处理，
+      // 但如果错误发生在步骤之前，需要在此兜底重置）
+      const state = useEditorStore.getState();
+      if (state.currentProject?.id === projectId && state.processing) {
+        useEditorStore.getState().setProcessing(false);
+      } else if (state.currentProject?.id !== projectId) {
+        // 用户已切换项目，重置缓存中的 processing 状态
+        const states = new Map(state.projectProcessingStates);
+        const cached = states.get(projectId);
+        if (cached?.processing) {
+          cached.processing = false;
+          cached.processingMessage = '';
+          cached.processingProgress = 0;
+          states.set(projectId, cached);
+          useEditorStore.setState({ projectProcessingStates: states });
+        }
+      }
+
       const errorMsg = getErrorMessage(error);
       if (!errorMsg.includes('取消')) {
         addToast({
@@ -766,7 +848,7 @@ const Editor: React.FC = () => {
           finalPath = path;
         }
         setShowExportDialog(false);
-        setProcessing(true, t('editor.progress.exportingCustomClips'));
+        setProcessing(true, 'editor.progress.exportingCustomClips');
         try {
           await api.exportCustomClipsMerged(currentProject.id, segmentsData, finalPath);
           addToast({
@@ -799,7 +881,7 @@ const Editor: React.FC = () => {
           finalPath = path;
         }
         setShowExportDialog(false);
-        setProcessing(true, t('editor.progress.exportingCustomClips'));
+        setProcessing(true, 'editor.progress.exportingCustomClips');
         try {
           const result = await api.exportCustomClipsSeparately(currentProject.id, segmentsData, finalPath);
           addToast({
@@ -1038,7 +1120,7 @@ const Editor: React.FC = () => {
         <div className="px-4 py-2 bg-[hsl(var(--card-bg))] border-b border-[hsl(var(--border))]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm text-[hsl(var(--text-secondary))]">
-              {cancelling ? t('common.cancelling') : processingMessage}
+              {cancelling ? t('common.cancelling') : (processingMessage ? t(processingMessage) : '')}
             </span>
             <span className="text-sm text-[hsl(var(--text-muted))]">
               {(processingProgress * 100).toFixed(1)}%
