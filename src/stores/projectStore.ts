@@ -34,6 +34,7 @@ interface ProjectState {
   // 操作
   loadProjects: () => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  deleteAllProjects: () => Promise<void>;
   clearError: () => void;
   // 进度状态操作
   removeProjectStatus: (projectId: string) => void;
@@ -99,6 +100,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (error) {
       set({
         error: getErrorMessage(error, 'Failed to delete project'),
+      });
+      throw error;
+    }
+  },
+
+  deleteAllProjects: async () => {
+    try {
+      const projects = get().projects;
+      await api.deleteAllProjects();
+      set({ projects: [] });
+
+      // 重置编辑器状态
+      const editorStore = useEditorStore.getState();
+      editorStore.reset();
+      // 清除所有项目的处理状态缓存
+      for (const p of projects) {
+        editorStore.clearProjectState(p.id);
+      }
+      // 清空进度状态
+      set({ projectStatus: {} });
+    } catch (error) {
+      set({
+        error: getErrorMessage(error, 'Failed to delete all projects'),
       });
       throw error;
     }

@@ -129,7 +129,7 @@ export const MusicSelector: React.FC<MusicSelectorProps> = ({
           {/* 操作按钮 */}
           <div className="flex items-center justify-between">
             <div className="text-sm text-[hsl(var(--text-muted))]">
-              {t('musicSelector.selected', { count: validLocalSelectedIds.length })} / {musicList.length}
+              {t('musicSelector.selected', { count: validLocalSelectedIds.length, total: musicList.length })}
               {deletedCount > 0 && (
                 <span className="text-yellow-500 ml-2">
                   ({t('musicSelector.deletedCount', { count: deletedCount })})

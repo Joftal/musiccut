@@ -20,6 +20,7 @@ interface MusicState {
   importFolder: (path: string) => Promise<number>;
   importFiles: (paths: string[]) => Promise<void>;
   deleteMusic: (id: string) => Promise<void>;
+  deleteAllMusic: () => Promise<void>;
   searchMusic: (query: string) => Promise<void>;
   setSelectedMusic: (music: MusicInfo | null) => void;
   setImportProgress: (progress: ImportProgress | null) => void;
@@ -103,6 +104,18 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       set({
         error: getErrorMessage(error, 'Delete failed'),
       });
+    }
+  },
+
+  deleteAllMusic: async () => {
+    try {
+      await api.deleteAllMusic();
+      set({ musicList: [], selectedMusic: null });
+    } catch (error) {
+      set({
+        error: getErrorMessage(error, 'Delete all failed'),
+      });
+      throw error;
     }
   },
 

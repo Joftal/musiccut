@@ -205,6 +205,12 @@ pub async fn delete_music(id: String) -> AppResult<()> {
     database::delete_music(&id)
 }
 
+/// 删除所有音乐
+#[tauri::command]
+pub async fn delete_all_music() -> AppResult<()> {
+    database::clear_all_music()
+}
+
 /// 搜索音乐
 #[tauri::command]
 pub async fn search_music(query: String) -> AppResult<Vec<MusicInfo>> {

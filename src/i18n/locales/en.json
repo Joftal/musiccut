@@ -63,6 +63,7 @@
     "title": "Projects",
     "subtitle": "Manage your video editing projects",
     "newProject": "New Project",
+    "deleteAll": "Delete All",
     "importFolder": "Import Folder",
     "searchPlaceholder": "Search projects...",
     "emptyTitle": "No projects yet",
@@ -76,7 +77,10 @@
       "selectVideo": "Select video file",
       "deleteProjectTitle": "Delete Project",
       "deleteWarning": "Warning: This action cannot be undone!",
-      "deleteConfirm": "Are you sure you want to delete this project? It cannot be recovered."
+      "deleteConfirm": "Are you sure you want to delete this project? It cannot be recovered.",
+      "deleteAllTitle": "Delete All Projects",
+      "deleteAllWarning": "Warning: This will delete all projects and their associated data. This cannot be undone!",
+      "deleteAllConfirm": "Are you sure you want to delete all {{count}} projects?"
     },
     "toast": {
       "selectVideo": "Please select a video file",
@@ -84,6 +88,8 @@
       "skipExisting": "Imported 0 projects, skipped 1 existing project",
       "deleted": "Project deleted",
       "deleteFailed": "Delete failed",
+      "allDeleted": "All projects deleted",
+      "deleteAllFailed": "Failed to delete all projects",
       "noVideoInFolder": "No video files in this folder",
       "longFileName": "{{count}} files have long names",
       "longFileNameDesc": "These projects may fail to export due to path length. Consider renaming before import",
@@ -105,6 +111,7 @@
     "subtitle": "Manage music fingerprint library, {{count}} tracks total",
     "importFolder": "Import Folder",
     "importFiles": "Import Files",
+    "deleteAll": "Delete All",
     "searchPlaceholder": "Search music...",
     "emptyTitle": "Library is empty",
     "emptySubtitle": "Import music to create fingerprint library",
@@ -121,7 +128,10 @@
     "dialog": {
       "deleteMusicTitle": "Delete Music",
       "deleteWarning": "Warning: This action cannot be undone!",
-      "deleteConfirm": "Are you sure you want to delete this music? It cannot be recovered."
+      "deleteConfirm": "Are you sure you want to delete this music? It cannot be recovered.",
+      "deleteAllTitle": "Delete All Music Fingerprints",
+      "deleteAllWarning": "Warning: This will delete all music fingerprint data. This cannot be undone!",
+      "deleteAllConfirm": "Are you sure you want to delete all {{count}} music fingerprints?"
     },
     "toast": {
       "importSuccess": "Successfully imported {{imported}} audio files",
@@ -129,7 +139,9 @@
       "importErrors": "{{errors}} files failed to import",
       "importFailed": "Import failed",
       "deleted": "Deleted",
-      "deleteFailed": "Delete failed"
+      "deleteFailed": "Delete failed",
+      "allDeleted": "All music fingerprints deleted",
+      "deleteAllFailed": "Failed to delete all music fingerprints"
     }
   },
   "editor": {
@@ -317,7 +329,7 @@
     "useSelected": "Confirm Selection",
     "selectAll": "Select All",
     "deselectAll": "Deselect All",
-    "selected": "{{count}} selected",
+    "selected": "Selected {{count}} / Total {{total}}",
     "deletedCount": "{{count}} deleted",
     "searchPlaceholder": "Search music...",
     "emptyLibrary": "Library is empty",

@@ -673,3 +673,18 @@ pub fn clear_all_data() -> AppResult<()> {
     conn.execute("DELETE FROM music", [])?;
     Ok(())
 }
+
+/// 清空所有项目和片段
+pub fn clear_all_projects() -> AppResult<()> {
+    let conn = get_conn()?;
+    conn.execute("DELETE FROM segments", [])?;
+    conn.execute("DELETE FROM projects", [])?;
+    Ok(())
+}
+
+/// 清空所有音乐
+pub fn clear_all_music() -> AppResult<()> {
+    let conn = get_conn()?;
+    conn.execute("DELETE FROM music", [])?;
+    Ok(())
+}

@@ -49,6 +49,7 @@ const Library: React.FC = () => {
     importFolder,
     importFiles,
     deleteMusic,
+    deleteAllMusic,
     searchMusic,
     setImportProgress,
   } = useMusicStore();
@@ -58,6 +59,8 @@ const Library: React.FC = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   useEffect(() => {
     loadMusicLibrary();
@@ -175,6 +178,26 @@ const Library: React.FC = () => {
     }
   };
 
+  const confirmDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      await deleteAllMusic();
+      addToast({
+        type: 'success',
+        title: t('library.toast.allDeleted'),
+      });
+      setShowDeleteAllDialog(false);
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: t('library.toast.deleteAllFailed'),
+        description: getErrorMessage(error),
+      });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* 头部 */}
@@ -186,6 +209,10 @@ const Library: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="danger" onClick={() => setShowDeleteAllDialog(true)} disabled={musicList.length === 0 || importing}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            {t('library.deleteAll')}
+          </Button>
           <Button variant="secondary" onClick={handleImportFolder}>
             <FolderOpen className="w-4 h-4 mr-2" />
             {t('library.importFolder')}
@@ -331,6 +358,38 @@ const Library: React.FC = () => {
               loading={deleting}
             >
               {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除所有音乐确认对话框 */}
+      <Dialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('library.dialog.deleteAllTitle')}</DialogTitle>
+            <DialogClose />
+          </DialogHeader>
+          <DialogBody>
+            <div className="space-y-4">
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                <p className="text-red-500 font-medium">{t('library.dialog.deleteAllWarning')}</p>
+              </div>
+              <p className="text-[hsl(var(--text-secondary))]">
+                {t('library.dialog.deleteAllConfirm', { count: musicList.length })}
+              </p>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDeleteAllDialog(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmDeleteAll}
+              loading={deletingAll}
+            >
+              {t('library.deleteAll')}
             </Button>
           </DialogFooter>
         </DialogContent>

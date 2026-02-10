@@ -87,6 +87,10 @@ export async function deleteMusic(id: string): Promise<void> {
   return invoke('delete_music', { id });
 }
 
+export async function deleteAllMusic(): Promise<void> {
+  return invoke('delete_all_music');
+}
+
 export async function searchMusic(query: string): Promise<MusicInfo[]> {
   return invoke('search_music', { query });
 }
@@ -266,6 +270,10 @@ export async function getProjects(): Promise<Project[]> {
 
 export async function deleteProject(id: string): Promise<void> {
   return invoke('delete_project', { id });
+}
+
+export async function deleteAllProjects(): Promise<void> {
+  return invoke('delete_all_projects');
 }
 
 export async function updateSegments(

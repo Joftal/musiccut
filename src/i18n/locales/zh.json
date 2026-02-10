@@ -63,6 +63,7 @@
     "title": "项目",
     "subtitle": "管理你的视频剪辑项目",
     "newProject": "新建项目",
+    "deleteAll": "删除所有",
     "importFolder": "导入文件夹",
     "searchPlaceholder": "搜索项目...",
     "emptyTitle": "还没有项目",
@@ -76,7 +77,10 @@
       "selectVideo": "选择视频文件",
       "deleteProjectTitle": "删除项目",
       "deleteWarning": "警告：此操作不可撤销！",
-      "deleteConfirm": "确定要删除这个项目吗？删除后将无法恢复。"
+      "deleteConfirm": "确定要删除这个项目吗？删除后将无法恢复。",
+      "deleteAllTitle": "删除所有项目",
+      "deleteAllWarning": "警告：此操作将删除所有项目及其关联数据，不可撤销！",
+      "deleteAllConfirm": "确定要删除全部 {{count}} 个项目吗？"
     },
     "toast": {
       "selectVideo": "请选择视频文件",
@@ -84,6 +88,8 @@
       "skipExisting": "成功导入 0 个项目，跳过 1 个已存在的项目",
       "deleted": "项目已删除",
       "deleteFailed": "删除失败",
+      "allDeleted": "已删除所有项目",
+      "deleteAllFailed": "删除所有项目失败",
       "noVideoInFolder": "该文件夹中没有视频文件",
       "longFileName": "{{count}} 个文件名较长",
       "longFileNameDesc": "这些项目导出时可能因路径过长而失败，建议重命名后再导入",
@@ -105,6 +111,7 @@
     "subtitle": "管理音乐指纹库，共 {{count}} 首",
     "importFolder": "导入文件夹",
     "importFiles": "导入文件",
+    "deleteAll": "删除所有",
     "searchPlaceholder": "搜索音乐...",
     "emptyTitle": "音乐库为空",
     "emptySubtitle": "导入音乐以创建指纹库",
@@ -121,7 +128,10 @@
     "dialog": {
       "deleteMusicTitle": "删除音乐",
       "deleteWarning": "警告：此操作不可撤销！",
-      "deleteConfirm": "确定要删除这首音乐吗？删除后将无法恢复。"
+      "deleteConfirm": "确定要删除这首音乐吗？删除后将无法恢复。",
+      "deleteAllTitle": "删除所有音乐指纹",
+      "deleteAllWarning": "警告：此操作将删除所有音乐指纹数据，不可撤销！",
+      "deleteAllConfirm": "确定要删除全部 {{count}} 条音乐指纹吗？"
     },
     "toast": {
       "importSuccess": "成功导入 {{imported}} 个音频文件",
@@ -129,7 +139,9 @@
       "importErrors": "{{errors}} 个文件导入失败",
       "importFailed": "导入失败",
       "deleted": "已删除",
-      "deleteFailed": "删除失败"
+      "deleteFailed": "删除失败",
+      "allDeleted": "已删除所有音乐指纹",
+      "deleteAllFailed": "删除所有音乐指纹失败"
     }
   },
   "editor": {
@@ -317,7 +329,7 @@
     "useSelected": "确认选择",
     "selectAll": "全选",
     "deselectAll": "取消全选",
-    "selected": "已选择 {{count}} 首",
+    "selected": "已选择 {{count}} 首 / 总 {{total}} 首",
     "deletedCount": "{{count}} 首已删除",
     "searchPlaceholder": "搜索音乐...",
     "emptyLibrary": "音乐库为空",
