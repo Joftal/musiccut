@@ -44,17 +44,40 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { useSystemStore } from '@/stores/systemStore';
 import { useModelStore } from '@/stores/modelStore';
+import { useThemeStore } from '@/stores/themeStore';
 import { useToast } from '@/components/ui/Toast';
 import { cn, formatDuration, formatPreciseTime, getErrorMessage, checkExportPathValidity } from '@/utils';
 import * as api from '@/services/api';
 
-const getSegmentAccentColors = (index: number) => {
+const getSegmentAccentColors = (index: number, isDark: boolean) => {
   const hue = Math.round((index * 137.508) % 360);
+  if (isDark) {
+    // 深色模式：不透明深色背景 + 浅色文字，高对比度
+    return {
+      accent: `hsl(${hue} 65% 55%)`,
+      border: `hsl(${hue} 50% 35%)`,
+      background: `hsl(${hue} 40% 18%)`,
+      timeline: `hsl(${hue} 55% 30%)`,
+      text: `hsl(${hue} 30% 85%)`,
+      textMuted: `hsl(${hue} 20% 65%)`,
+      btnText: `hsl(0 80% 70%)`,
+      btnHover: `hsl(0 70% 70% / 0.2)`,
+      btnRestoreText: `hsl(199 80% 65%)`,
+      btnRestoreHover: `hsl(199 70% 65% / 0.2)`,
+    };
+  }
+  // 明亮模式：浅色背景 + 深色文字
   return {
     accent: `hsl(${hue} 75% 45%)`,
     border: `hsl(${hue} 70% 40%)`,
     background: `hsl(${hue} 85% 92%)`,
-    timeline: `hsla(${hue} 80% 50% / 0.45)`,
+    timeline: `hsl(${hue} 70% 80%)`,
+    text: `hsl(${hue} 60% 20%)`,
+    textMuted: `hsl(${hue} 30% 40%)`,
+    btnText: `hsl(0 84% 50%)`,
+    btnHover: `hsl(0 70% 50% / 0.2)`,
+    btnRestoreText: `hsl(199 89% 40%)`,
+    btnRestoreHover: `hsl(199 70% 40% / 0.2)`,
   };
 };
 
@@ -76,6 +99,7 @@ const Editor: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const isDark = useThemeStore((s) => s.theme === 'dark');
 
   const {
     currentProject,
@@ -1262,7 +1286,7 @@ const Editor: React.FC = () => {
             ) : (
               <div className="p-2 space-y-2">
                 {segments.map((segment, index) => {
-                  const accentColors = getSegmentAccentColors(index);
+                  const accentColors = getSegmentAccentColors(index, isDark);
                   return (
                     <div
                       key={segment.id}
@@ -1289,15 +1313,15 @@ const Editor: React.FC = () => {
                           >
                             {index + 1}
                           </span>
-                          <span className="text-sm font-medium text-[hsl(var(--foreground))] truncate">
+                          <span className="text-sm font-medium truncate" style={{ color: accentColors.text }}>
                             {segment.music_title || t('editor.segments.unknownMusic')}
                           </span>
                         </div>
-                        <span className="text-xs text-[hsl(var(--text-muted))]">
+                        <span className="text-xs" style={{ color: accentColors.textMuted }}>
                           {(segment.confidence * 100).toFixed(0)}%
                         </span>
                       </div>
-                    <div className="text-xs text-[hsl(var(--text-muted))] mt-1">
+                    <div className="text-xs mt-1" style={{ color: accentColors.textMuted }}>
                       {formatDuration(segment.start_time)} -{' '}
                       {formatDuration(segment.end_time)}
                     </div>
@@ -1308,7 +1332,10 @@ const Editor: React.FC = () => {
                             e.stopPropagation();
                             removeSegment(segment.id);
                           }}
-                          className="px-2 py-0.5 text-xs text-red-500 hover:bg-red-500/20 rounded"
+                          className="px-2 py-0.5 text-xs rounded"
+                          style={{ color: accentColors.btnText }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = accentColors.btnHover}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                         >
                           {t('common.remove')}
                         </button>
@@ -1319,7 +1346,10 @@ const Editor: React.FC = () => {
                             e.stopPropagation();
                             restoreSegment(segment.id);
                           }}
-                          className="px-2 py-0.5 text-xs text-blue-500 hover:bg-blue-500/20 rounded"
+                          className="px-2 py-0.5 text-xs rounded"
+                          style={{ color: accentColors.btnRestoreText }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = accentColors.btnRestoreHover}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                         >
                           {t('common.restore')}
                         </button>
@@ -1555,7 +1585,7 @@ const Editor: React.FC = () => {
           {/* 片段显示（非自定义剪辑模式或作为背景参考） */}
           {duration > 0 && segments.map((segment, index) => {
             if (segment.status === 'removed') return null;
-            const accentColors = getSegmentAccentColors(index);
+            const accentColors = getSegmentAccentColors(index, isDark);
             return (
               <div
                 key={segment.id}
@@ -1594,34 +1624,47 @@ const Editor: React.FC = () => {
             );
           })}
 
-          {/* 已提交的自定义剪辑片段 - 蓝色覆盖层 */}
-          {customClipMode && duration > 0 && customClipSegments.map((seg, idx) => (
-            <div
-              key={seg.id}
-              className={cn(
-                'absolute top-0 h-full z-[5] pointer-events-none',
-                customClipEditingId === seg.id
-                  ? 'bg-yellow-500/30 border-y-2 border-dashed border-yellow-500'
-                  : 'bg-blue-500/30'
-              )}
-              style={{
-                left: `${(seg.start_time / duration) * 100}%`,
-                width: `${((seg.end_time - seg.start_time) / duration) * 100}%`,
-              }}
-            >
-              <span className="absolute left-0.5 top-0.5 text-[9px] font-bold text-blue-700 bg-blue-200/80 rounded px-0.5">
-                {idx + 1}
-              </span>
-            </div>
-          ))}
+          {/* 已提交的自定义剪辑片段 */}
+          {customClipMode && duration > 0 && customClipSegments.map((seg, idx) => {
+            const clipHue = Math.round((idx * 137.508) % 360);
+            const isEditing = customClipEditingId === seg.id;
+            return (
+              <div
+                key={seg.id}
+                className={cn(
+                  'absolute top-0 h-full z-[5] pointer-events-none',
+                  isEditing && 'border-y-2 border-dashed',
+                  isEditing && (isDark ? 'border-yellow-400' : 'border-yellow-500')
+                )}
+                style={{
+                  left: `${(seg.start_time / duration) * 100}%`,
+                  width: `${((seg.end_time - seg.start_time) / duration) * 100}%`,
+                  backgroundColor: isEditing
+                    ? isDark ? 'hsl(45 70% 25%)' : 'hsl(45 90% 85%)'
+                    : isDark ? `hsl(${clipHue} 50% 28%)` : `hsl(${clipHue} 70% 82%)`,
+                }}
+              >
+                <span
+                  className="absolute left-0.5 top-0.5 text-[9px] font-bold rounded px-0.5"
+                  style={{
+                    color: isDark ? `hsl(${clipHue} 60% 80%)` : `hsl(${clipHue} 70% 25%)`,
+                    backgroundColor: isDark ? `hsl(${clipHue} 30% 15%)` : `hsl(${clipHue} 50% 92%)`,
+                  }}
+                >
+                  {idx + 1}
+                </span>
+              </div>
+            );
+          })}
 
-          {/* 自定义剪辑草稿选择区域 - 黄色虚线 */}
+          {/* 自定义剪辑草稿选择区域 */}
           {customClipMode && customClipStart !== null && customClipEnd !== null && duration > 0 && (
             <div
-              className="absolute top-0 h-full bg-primary-500/25 border-y-2 border-dashed border-primary-400 z-[6] pointer-events-none"
+              className="absolute top-0 h-full border-y-2 border-dashed border-primary-400 z-[6] pointer-events-none"
               style={{
                 left: `${(Math.min(customClipStart, customClipEnd) / duration) * 100}%`,
                 width: `${(Math.abs(customClipEnd - customClipStart) / duration) * 100}%`,
+                backgroundColor: isDark ? 'hsl(199 60% 22%)' : 'hsl(199 80% 88%)',
               }}
             />
           )}
