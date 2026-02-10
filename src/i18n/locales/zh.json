@@ -32,8 +32,6 @@
     "selectMatchingMusic": "选择匹配音乐",
     "selectedSongsCount": "已选择 {{count}} 首音乐",
     "downloadModelFirst": "请先在设置页下载模型",
-    "processingSpeed": "处理速度",
-    "separationQuality": "分离质量",
     "project": "项目",
     "cancelled": "已取消",
     "cancellingTask": "正在取消上一个任务，请稍候再试",
@@ -252,11 +250,9 @@
     "separation": {
       "title": "人声分离设置",
       "model": "分离模型",
-      "currentSelection": "当前选择",
       "downloaded": "已下载",
       "downloading": "下载中",
-      "trackSeparation": "{{count}} 轨分离",
-      "modelHint": "点击\"下载\"按钮预先下载模型。速度评分越高处理越快，质量评分越高分离效果越好。"
+      "modelHint": "点击\"下载\"按钮预先下载模型。"
     },
     "log": {
       "title": "日志设置",

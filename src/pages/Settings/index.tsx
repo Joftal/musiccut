@@ -12,11 +12,10 @@ import {
   Database,
   FolderOpen,
   RotateCcw,
-  Zap,
-  Star,
   Download,
   Loader2,
   FileText,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -70,6 +69,7 @@ const Settings: React.FC = () => {
   const [resettingConfig, setResettingConfig] = useState(false);
   const [showResetDbDialog, setShowResetDbDialog] = useState(false);
   const [showResetConfigDialog, setShowResetConfigDialog] = useState(false);
+  const [showMatchingSettings, setShowMatchingSettings] = useState(false);
 
   const loadStorageInfo = async () => {
     setLoadingStorage(true);
@@ -328,113 +328,6 @@ const Settings: React.FC = () => {
           </div>
         </section>
 
-        {/* 匹配设置 */}
-        {localConfig && (
-          <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">{t('settings.matching.title')}</h2>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  {t('settings.matching.minConfidence')}
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={localConfig.matching.min_confidence}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val)) {
-                      updateLocalConfig('matching.min_confidence', val);
-                    }
-                  }}
-                  onBlur={(e) => {
-                    let val = parseFloat(e.target.value);
-                    if (isNaN(val)) val = 0.6;
-                    val = Math.max(0, Math.min(1, Math.round(val * 10) / 10));
-                    updateLocalConfig('matching.min_confidence', val);
-                  }}
-                />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.minConfidenceDesc')}</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  {t('settings.matching.minSegmentDuration')}
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={localConfig.matching.min_segment_duration}
-                  onChange={(e) =>
-                    updateLocalConfig(
-                      'matching.min_segment_duration',
-                      parseFloat(e.target.value) || 5
-                    )
-                  }
-                />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.minSegmentDurationDesc')}</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  {t('settings.matching.windowSize')}
-                </label>
-                <Input
-                  type="number"
-                  min={5}
-                  value={localConfig.matching.window_size}
-                  onChange={(e) =>
-                    updateLocalConfig(
-                      'matching.window_size',
-                      parseFloat(e.target.value) || 15
-                    )
-                  }
-                />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.windowSizeDesc')}</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  {t('settings.matching.hopSize')}
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={localConfig.matching.hop_size}
-                  onChange={(e) =>
-                    updateLocalConfig(
-                      'matching.hop_size',
-                      parseFloat(e.target.value) || 5
-                    )
-                  }
-                />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.hopSizeDesc')}</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
-                  {t('settings.matching.maxGapDuration')}
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={localConfig.matching.max_gap_duration}
-                  onChange={(e) =>
-                    updateLocalConfig(
-                      'matching.max_gap_duration',
-                      parseFloat(e.target.value) || 10
-                    )
-                  }
-                />
-                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.maxGapDurationDesc')}</p>
-              </div>
-            </div>
-          </section>
-        )}
-
         {/* 人声分离设置 */}
         {localConfig && (
           <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
@@ -463,7 +356,6 @@ const Settings: React.FC = () => {
                     const downloaded = isModelDownloaded(model.id);
                     const downloading = isModelDownloading(model.id);
                     const progress = downloadProgress.get(model.id) || 0;
-                    const isSelected = localConfig.separation.selected_model_id === model.id;
 
                     // 判断模型GPU支持状态 (仅支持 ONNX 模型)
                     const canUseGpu = accelerationOptions?.onnx_gpu_available;
@@ -471,109 +363,178 @@ const Settings: React.FC = () => {
                     return (
                       <div
                         key={model.id}
-                        onClick={() => updateLocalConfig('separation.selected_model_id', model.id)}
-                        className={cn(
-                          'p-4 rounded-lg border cursor-pointer transition-all',
-                          isSelected
-                            ? 'border-primary-500 bg-primary-500/10'
-                            : 'border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:border-[hsl(var(--text-muted))]'
-                        )}
+                        className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] transition-all"
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-[hsl(var(--foreground))]">
-                                {model.name}
-                              </span>
-                              <span className="text-xs px-2 py-0.5 rounded bg-[hsl(var(--background))] text-[hsl(var(--text-muted))]">
-                                {model.architecture.toUpperCase()}
-                              </span>
-                              {canUseGpu ? (
-                                <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-500">
-                                  GPU
+                        <div
+                          className="p-4 cursor-pointer"
+                          onClick={() => setShowMatchingSettings(!showMatchingSettings)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-[hsl(var(--foreground))]">
+                                  {model.name}
                                 </span>
+                                <span className="text-xs px-2 py-0.5 rounded bg-[hsl(var(--background))] text-[hsl(var(--text-muted))]">
+                                  {model.architecture.toUpperCase()}
+                                </span>
+                                {canUseGpu ? (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-500">
+                                    GPU
+                                  </span>
+                                ) : (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">
+                                    CPU
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-[hsl(var(--text-muted))] mt-1">
+                                {model.id === 'mdx-inst-hq3' ? t('model.mdxInstHq3.description') : model.description}
+                              </p>
+                            </div>
+                            <div className="ml-4 flex flex-col items-end gap-2">
+                              {downloaded ? (
+                                <span className="flex items-center gap-1 text-xs text-green-500">
+                                  <Check className="w-4 h-4" />
+                                  {t('settings.separation.downloaded')}
+                                </span>
+                              ) : downloading ? (
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="flex items-center gap-1 text-xs text-blue-500">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    {t('settings.separation.downloading')}
+                                  </span>
+                                  <div className="w-24">
+                                    <Progress value={progress} />
+                                  </div>
+                                  <span className="text-xs text-[hsl(var(--text-muted))]">
+                                    {progress.toFixed(0)}%
+                                  </span>
+                                </div>
                               ) : (
-                                <span className="text-xs px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">
-                                  CPU
-                                </span>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadModel(model.id);
+                                  }}
+                                >
+                                  <Download className="w-4 h-4 mr-1" />
+                                  {t('common.download')}
+                                </Button>
                               )}
-                              {isSelected && (
-                                <span className="text-xs px-2 py-0.5 rounded bg-primary-500/20 text-primary-500">
-                                  {t('settings.separation.currentSelection')}
-                                </span>
-                              )}
+                              <ChevronDown
+                                className={`w-4 h-4 text-[hsl(var(--text-muted))] transition-transform ${showMatchingSettings ? 'rotate-180' : ''}`}
+                              />
                             </div>
-                            <p className="text-sm text-[hsl(var(--text-muted))] mt-1">
-                              {model.id === 'mdx-inst-hq3' ? t('model.mdxInstHq3.description') : model.description}
-                            </p>
-                            <div className="flex items-center gap-4 mt-2">
-                              <div className="flex items-center gap-1" title={t('common.processingSpeed')}>
-                                <Zap className="w-3 h-3 text-yellow-500" />
-                                <div className="flex gap-0.5">
-                                  {Array.from({ length: 5 }).map((_, i) => (
-                                    <div
-                                      key={i}
-                                      className={cn(
-                                        'w-1.5 h-1.5 rounded-full',
-                                        i < model.speed_rating ? 'bg-yellow-500' : 'bg-gray-600'
-                                      )}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1" title={t('common.separationQuality')}>
-                                <Star className="w-3 h-3 text-blue-500" />
-                                <div className="flex gap-0.5">
-                                  {Array.from({ length: 5 }).map((_, i) => (
-                                    <div
-                                      key={i}
-                                      className={cn(
-                                        'w-1.5 h-1.5 rounded-full',
-                                        i < model.quality_rating ? 'bg-blue-500' : 'bg-gray-600'
-                                      )}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                              <span className="text-xs text-[hsl(var(--text-muted))]">
-                                {t('settings.separation.trackSeparation', { count: model.stems })}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="ml-4 flex flex-col items-end gap-2">
-                            {downloaded ? (
-                              <span className="flex items-center gap-1 text-xs text-green-500">
-                                <Check className="w-4 h-4" />
-                                {t('settings.separation.downloaded')}
-                              </span>
-                            ) : downloading ? (
-                              <div className="flex flex-col items-end gap-1">
-                                <span className="flex items-center gap-1 text-xs text-blue-500">
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                  {t('settings.separation.downloading')}
-                                </span>
-                                <div className="w-24">
-                                  <Progress value={progress} />
-                                </div>
-                                <span className="text-xs text-[hsl(var(--text-muted))]">
-                                  {progress.toFixed(0)}%
-                                </span>
-                              </div>
-                            ) : (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadModel(model.id);
-                                }}
-                              >
-                                <Download className="w-4 h-4 mr-1" />
-                                {t('common.download')}
-                              </Button>
-                            )}
                           </div>
                         </div>
+
+                        {showMatchingSettings && (
+                          <div className="px-4 pb-4 border-t border-[hsl(var(--border))]">
+                            <div className="flex items-center justify-between mt-3 mb-3">
+                              <h3 className="text-sm font-medium text-[hsl(var(--text-secondary))]">
+                                {t('settings.matching.title')}
+                              </h3>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.matching.minConfidence')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={1}
+                                  step={0.1}
+                                  value={localConfig.matching.min_confidence}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val)) {
+                                      updateLocalConfig('matching.min_confidence', val);
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    let val = parseFloat(e.target.value);
+                                    if (isNaN(val)) val = 0.6;
+                                    val = Math.max(0, Math.min(1, Math.round(val * 10) / 10));
+                                    updateLocalConfig('matching.min_confidence', val);
+                                  }}
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.minConfidenceDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.matching.minSegmentDuration')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={localConfig.matching.min_segment_duration}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'matching.min_segment_duration',
+                                      parseFloat(e.target.value) || 5
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.minSegmentDurationDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.matching.windowSize')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={5}
+                                  value={localConfig.matching.window_size}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'matching.window_size',
+                                      parseFloat(e.target.value) || 15
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.windowSizeDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.matching.hopSize')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={localConfig.matching.hop_size}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'matching.hop_size',
+                                      parseFloat(e.target.value) || 5
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.hopSizeDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.matching.maxGapDuration')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={localConfig.matching.max_gap_duration}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'matching.max_gap_duration',
+                                      parseFloat(e.target.value) || 10
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.matching.maxGapDurationDesc')}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
