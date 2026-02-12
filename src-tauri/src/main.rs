@@ -15,6 +15,7 @@ mod error;
 mod utils;
 mod models;
 mod logging;
+mod detection;
 
 use tauri::{Manager, WindowEvent, PhysicalSize, PhysicalPosition};
 use tracing::{info, warn, error};
@@ -245,6 +246,10 @@ fn main() {
             commands::models::check_model_downloaded,
             commands::models::get_model_info,
             commands::models::download_model,
+
+            // 人物检测命令
+            commands::detection::detect_persons,
+            commands::detection::cancel_detection,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

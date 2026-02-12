@@ -24,6 +24,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Progress } from '@/components/ui/Progress';
@@ -141,6 +142,12 @@ const Editor: React.FC = () => {
     // 自定义音乐库选择
     useCustomMusicLibrary,
     selectedMusicIds,
+    // 人物检测
+    detectionProcessing,
+    detectionProgress,
+    detectionMessage,
+    detectPersons,
+    cancelDetection,
   } = useEditorStore();
 
   // 只有当取消的项目是当前项目时，才显示取消状态
@@ -160,6 +167,7 @@ const Editor: React.FC = () => {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportPath, setExportPath] = useState('');
   const [exportMode, setExportMode] = useState<'merged' | 'separate'>('merged');
+  const [forceReencode, setForceReencode] = useState(false);
   const [isCustomClipExport, setIsCustomClipExport] = useState(false);
   const [showSegmentList, setShowSegmentList] = useState(false);
   const [acceleration, setAcceleration] = useState<string>('gpu');
@@ -256,6 +264,7 @@ const Editor: React.FC = () => {
             audioPath: null, vocalsPath: null, accompanimentPath: null,
             processing: true, processingMessage: '', processingProgress: 0,
             useCustomMusicLibrary: false, selectedMusicIds: [],
+            detectionProcessing: false, detectionProgress: 0, detectionMessage: '',
           };
           cached.processing = true;
           cached.processingMessage = 'editor.progress.separationQueued';
@@ -315,6 +324,41 @@ const Editor: React.FC = () => {
         unlisteners.push(unlisten3);
       } else {
         unlisten3();
+      }
+
+      // 人物检测排队
+      const unlistenDetQueued = await api.onDetectionQueued((data) => {
+        if (!mounted) return;
+        const state = useEditorStore.getState();
+        const currentProjectId = state.currentProject?.id;
+        if (data.project_id === currentProjectId) {
+          useEditorStore.setState({
+            detectionMessage: 'editor.progress.detectionQueued',
+          });
+        }
+      });
+      if (mounted) {
+        unlisteners.push(unlistenDetQueued);
+      } else {
+        unlistenDetQueued();
+      }
+
+      // 人物检测进度
+      const unlisten4 = await api.onDetectionProgress((progress) => {
+        if (!mounted) return;
+        const state = useEditorStore.getState();
+        const currentProjectId = state.currentProject?.id;
+        if (progress.project_id === currentProjectId) {
+          useEditorStore.setState({
+            detectionProgress: progress.progress,
+            detectionMessage: 'editor.progress.detectingPersons',
+          });
+        }
+      });
+      if (mounted) {
+        unlisteners.push(unlisten4);
+      } else {
+        unlisten4();
       }
     };
 
@@ -635,6 +679,7 @@ const Editor: React.FC = () => {
     if (!currentProject || customClipSegments.length === 0) return;
     setIsCustomClipExport(true);
     setExportMode('merged');
+    setForceReencode(false);
     if (currentProject) {
       const { mergedPath } = getDefaultExportPaths(currentProject.source_video_path);
       setExportPath(mergedPath);
@@ -736,12 +781,12 @@ const Editor: React.FC = () => {
         addToast({ type: 'warning', title: t('common.cancellingTask') });
         return;
       }
-      if (state.processing) {
+      if (state.processing || state.detectionProcessing) {
         addToast({ type: 'warning', title: t('common.taskRunning') });
         return;
       }
       const cached = state.projectProcessingStates.get(projectId);
-      if (cached?.processing) {
+      if (cached?.processing || cached?.detectionProcessing) {
         addToast({ type: 'warning', title: t('common.taskRunning') });
         return;
       }
@@ -849,6 +894,66 @@ const Editor: React.FC = () => {
     }
   };
 
+  const handleStartDetection = async () => {
+    if (!currentProject) return;
+
+    // 检查检测模型是否已下载
+    const detectionModel = models.find(m => m.architecture === 'yolo');
+    if (!detectionModel || !isModelDownloaded(detectionModel.id)) {
+      addToast({
+        type: 'error',
+        title: t('editor.toast.noModel'),
+        description: t('editor.toast.detectionModelNotFound'),
+      });
+      return;
+    }
+
+    // 防止重复启动（检测或 pipeline 任务互斥）
+    if (detectionProcessing || processing) {
+      addToast({ type: 'warning', title: t('common.taskRunning') });
+      return;
+    }
+
+    const projectId = currentProject.id;
+    const projectName = currentProject.name;
+    const videoPath = currentProject.source_video_path;
+
+    try {
+      const tempDir = appDir ? await join(appDir, 'temp') : '';
+      if (!tempDir) {
+        throw new Error(t('editor.toast.detectionFailed'));
+      }
+
+      const outputDir = await join(tempDir, `${projectId}_detection`);
+      await detectPersons(projectId, videoPath, outputDir, acceleration);
+
+      // 检测完成后获取最新片段数
+      const currentState = useEditorStore.getState();
+      const personSegments = currentState.segments.filter(s => s.segment_type === 'person');
+
+      addToast({
+        type: 'success',
+        title: t('editor.toast.detectionComplete', { name: projectName }),
+        description: t('editor.toast.detectionSegments', { count: personSegments.length }),
+      });
+    } catch (error) {
+      const errorMsg = getErrorMessage(error);
+      if (!errorMsg.includes('取消')) {
+        addToast({
+          type: 'error',
+          title: t('editor.toast.detectionFailed'),
+          description: errorMsg,
+        });
+      } else {
+        addToast({
+          type: 'info',
+          title: t('editor.toast.cancelled'),
+          description: t('editor.toast.detectionCancelled', { name: projectName }),
+        });
+      }
+    }
+  };
+
   const handleExport = async () => {
     if (!currentProject) return;
     let finalPath = exportPath;
@@ -874,7 +979,7 @@ const Editor: React.FC = () => {
         setShowExportDialog(false);
         setProcessing(true, 'editor.progress.exportingCustomClips');
         try {
-          await api.exportCustomClipsMerged(currentProject.id, segmentsData, finalPath);
+          await api.exportCustomClipsMerged(currentProject.id, segmentsData, finalPath, forceReencode);
           addToast({
             type: 'success',
             title: t('editor.toast.exportComplete'),
@@ -899,7 +1004,7 @@ const Editor: React.FC = () => {
         }
       } else {
         if (!finalPath) {
-          const path = await api.openDirectoryDialog();
+          const path = await api.openFolderDialog();
           if (!path) return;
           setExportPath(path);
           finalPath = path;
@@ -907,7 +1012,7 @@ const Editor: React.FC = () => {
         setShowExportDialog(false);
         setProcessing(true, 'editor.progress.exportingCustomClips');
         try {
-          const result = await api.exportCustomClipsSeparately(currentProject.id, segmentsData, finalPath);
+          const result = await api.exportCustomClipsSeparately(currentProject.id, segmentsData, finalPath, forceReencode);
           addToast({
             type: 'success',
             title: t('editor.toast.exportComplete'),
@@ -952,7 +1057,7 @@ const Editor: React.FC = () => {
       const projectName = currentProject?.name || t('common.project');
 
       try {
-        await exportVideo(finalPath);
+        await exportVideo(finalPath, forceReencode);
 
         addToast({
           type: 'success',
@@ -978,7 +1083,7 @@ const Editor: React.FC = () => {
     } else {
       // 分别导出模式 - 选择输出目录
       if (!finalPath) {
-        const path = await api.openDirectoryDialog();
+        const path = await api.openFolderDialog();
         if (!path) return;
         setExportPath(path);
         finalPath = path;
@@ -990,7 +1095,7 @@ const Editor: React.FC = () => {
       const projectName = currentProject?.name || 'Project';
 
       try {
-        const result = await exportVideoSeparately(finalPath);
+        const result = await exportVideoSeparately(finalPath, forceReencode);
 
         addToast({
           type: 'success',
@@ -1051,17 +1156,6 @@ const Editor: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* 模型状态显示 - 只有一个模型，简化为状态显示 */}
-          {hasDownloadedModels() ? (
-            <span className="px-3 py-1.5 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded-lg text-sm text-[hsl(var(--foreground))]">
-              MDX-Net Inst HQ3
-            </span>
-          ) : (
-            <span className="px-3 py-1.5 text-sm text-yellow-500">
-              {t('editor.downloadModelFirst')}
-            </span>
-          )}
-
           {/* 加速模式选择 */}
           <select
             value={acceleration}
@@ -1086,7 +1180,7 @@ const Editor: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleStartProcessing}
-            disabled={processing || !hasDownloadedModels()}
+            disabled={processing || detectionProcessing || !hasDownloadedModels()}
             title={!hasDownloadedModels() ? t('common.downloadModelFirst') : ''}
           >
             {processing ? (
@@ -1119,6 +1213,34 @@ const Editor: React.FC = () => {
             </Button>
           )}
 
+          {/* 人物检测按钮 */}
+          <Button
+            variant="secondary"
+            onClick={handleStartDetection}
+            disabled={detectionProcessing || processing}
+          >
+            {detectionProcessing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                {t('common.processing')}
+              </>
+            ) : (
+              <>
+                <User className="w-4 h-4 mr-2" />
+                {t('editor.startDetection')}
+              </>
+            )}
+          </Button>
+
+          {detectionProcessing && (
+            <Button
+              variant="danger"
+              onClick={() => currentProject && cancelDetection(currentProject.id)}
+            >
+              {t('editor.cancelDetection')}
+            </Button>
+          )}
+
           <Button
             variant={segments.filter(s => s.status !== 'removed').length > 0 ? 'success' : 'secondary'}
             onClick={() => {
@@ -1129,6 +1251,7 @@ const Editor: React.FC = () => {
               }
               setExportMode('merged');
               setIsCustomClipExport(false);
+              setForceReencode(false);
               setShowExportDialog(true);
             }}
             disabled={processing || segments.filter(s => s.status !== 'removed').length === 0}
@@ -1151,6 +1274,21 @@ const Editor: React.FC = () => {
             </span>
           </div>
           <Progress value={processingProgress * 100} />
+        </div>
+      )}
+
+      {/* 人物检测进度 */}
+      {detectionProcessing && (
+        <div className="px-4 py-2 bg-[hsl(var(--card-bg))] border-b border-[hsl(var(--border))]">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm text-[hsl(var(--text-secondary))]">
+              {detectionMessage ? t(detectionMessage) : t('editor.progress.detectingPersons')}
+            </span>
+            <span className="text-sm text-[hsl(var(--text-muted))]">
+              {(detectionProgress * 100).toFixed(1)}%
+            </span>
+          </div>
+          <Progress value={detectionProgress * 100} />
         </div>
       )}
 
@@ -1309,12 +1447,14 @@ const Editor: React.FC = () => {
                           <span
                             className="flex items-center justify-center w-6 h-6 text-[11px] font-semibold text-white rounded-full shrink-0"
                             style={{ backgroundColor: accentColors.accent }}
-                            title={`#${index + 1}`}
+                            title={`#${index + 1} ${segment.segment_type === 'person' ? t('editor.segments.personSegment') : t('editor.segments.musicSegment')}`}
                           >
                             {index + 1}
                           </span>
                           <span className="text-sm font-medium truncate" style={{ color: accentColors.text }}>
-                            {segment.music_title || t('editor.segments.unknownMusic')}
+                            {segment.segment_type === 'person'
+                              ? t('editor.segments.personSegment')
+                              : (segment.music_title || t('editor.segments.unknownMusic'))}
                           </span>
                         </div>
                         <span className="text-xs" style={{ color: accentColors.textMuted }}>
@@ -1791,7 +1931,7 @@ const Editor: React.FC = () => {
                       ]);
                       if (path) setExportPath(path);
                     } else {
-                      const path = await api.openDirectoryDialog();
+                      const path = await api.openFolderDialog();
                       if (path) setExportPath(path);
                     }
                   }}
@@ -1806,6 +1946,53 @@ const Editor: React.FC = () => {
                   <p className="text-xs text-yellow-500 mt-1.5">{warning}</p>
                 ) : null;
               })()}
+            </div>
+
+            {/* 重编码开关 */}
+            <div>
+                <label
+                  className="flex items-center gap-2 cursor-pointer select-none"
+                  onClick={() => setForceReencode(!forceReencode)}
+                >
+                  <span
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors',
+                      forceReencode ? 'bg-[hsl(var(--primary))]' : 'bg-[hsl(var(--border))]'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
+                        forceReencode ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </span>
+                  <span className="text-sm font-medium text-[hsl(var(--text-secondary))]">
+                    {t('editor.dialog.forceReencode')}
+                  </span>
+                </label>
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-1 ml-11">
+                  {t('editor.dialog.forceReencodeDesc')}
+                </p>
+                {/* 偏差提示：片段间存在短间隙时，无损模式可能不精确 */}
+                {!forceReencode && (() => {
+                  const activeSegs = isCustomClipExport
+                    ? customClipSegments
+                    : segments.filter(s => s.status !== 'removed');
+                  if (activeSegs.length < 2) return null;
+                  const sorted = [...activeSegs].sort((a, b) => a.start_time - b.start_time);
+                  let shortGaps = 0;
+                  for (let i = 1; i < sorted.length; i++) {
+                    const gap = sorted[i].start_time - sorted[i - 1].end_time;
+                    if (gap > 0 && gap < 10) shortGaps++;
+                  }
+                  if (shortGaps === 0) return null;
+                  return (
+                    <p className="text-xs text-yellow-500 mt-1.5 ml-11">
+                      {t('editor.dialog.reencodeHint', { count: shortGaps })}
+                    </p>
+                  );
+                })()}
             </div>
 
             <p className="text-sm text-[hsl(var(--text-muted))]">

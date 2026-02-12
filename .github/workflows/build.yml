@@ -262,6 +262,15 @@ jobs:
           Write-Host "audio-separator package ready:"
           Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
 
+      - name: Build person-detector package
+        shell: pwsh
+        run: |
+          Write-Host "Building person-detector..."
+          python .\scripts\build_person_detector.py
+
+          Write-Host "person-detector package ready:"
+          Get-ChildItem "src-tauri\resources\person-detector" -ErrorAction SilentlyContinue
+
       - name: Download MDX-Net model and config files
         shell: pwsh
         run: |
@@ -282,6 +291,22 @@ jobs:
           Invoke-WebRequest -Uri "$dataUrlPrefix/filelists/download_checks.json" -OutFile "$modelDir\download_checks.json"
 
           Write-Host "Model and config files downloaded:"
+          Get-ChildItem $modelDir
+
+      - name: Download YOLOv11s model
+        shell: pwsh
+        run: |
+          $modelDir = "models\person-detector\yolov11s"
+          $modelFile = "yolo11s.pt"
+          $modelUrl = "https://github.com/ultralytics/assets/releases/download/v8.3.0/$modelFile"
+
+          Write-Host "Creating person-detector model directory..."
+          New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
+
+          Write-Host "Downloading YOLOv11s model ($modelFile)..."
+          Invoke-WebRequest -Uri $modelUrl -OutFile "$modelDir\$modelFile"
+
+          Write-Host "Person detection model downloaded:"
           Get-ChildItem $modelDir
 
       - name: Build Tauri application
@@ -324,6 +349,11 @@ jobs:
             Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
           }
 
+          # Copy person-detector
+          if (Test-Path "src-tauri/resources/person-detector") {
+            Copy-Item -Recurse "src-tauri/resources/person-detector" "$outputDir/person-detector"
+          }
+
           # Create 7z split archive (1900MB per volume to stay under GitHub's 2GB limit)
           Push-Location "dist"
           7z a -t7z -mx=9 -v1900m "$archiveName" "$outputFolder"
@@ -361,6 +391,11 @@ jobs:
           # Copy audio-separator
           if (Test-Path "src-tauri/resources/audio-separator") {
             Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
+          }
+
+          # Copy person-detector
+          if (Test-Path "src-tauri/resources/person-detector") {
+            Copy-Item -Recurse "src-tauri/resources/person-detector" "$outputDir/person-detector"
           }
 
           # Create 7z split archive (1900MB per volume to stay under GitHub's 2GB limit)

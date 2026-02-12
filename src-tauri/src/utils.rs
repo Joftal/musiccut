@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "windows")]
@@ -67,6 +68,40 @@ pub struct VideoInfo {
     pub format: String,
 }
 
+/// 片段类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SegmentType {
+    /// 音乐匹配片段
+    Music,
+    /// 人物检测片段
+    Person,
+}
+
+impl Default for SegmentType {
+    fn default() -> Self {
+        Self::Music
+    }
+}
+
+impl SegmentType {
+    /// 转换为数据库存储字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SegmentType::Music => "music",
+            SegmentType::Person => "person",
+        }
+    }
+
+    /// 从数据库字符串解析
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "person" => SegmentType::Person,
+            _ => SegmentType::Music,
+        }
+    }
+}
+
 /// 片段信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Segment {
@@ -78,6 +113,8 @@ pub struct Segment {
     pub end_time: f64,
     pub confidence: f64,
     pub status: SegmentStatus,
+    #[serde(default)]
+    pub segment_type: SegmentType,
 }
 
 /// 片段状态
@@ -130,6 +167,7 @@ pub struct CutParams {
     pub project_id: String,
     pub output_path: String,
     pub keep_matched: bool,
+    pub force_reencode: Option<bool>,
 }
 
 /// GPU 信息
@@ -181,6 +219,16 @@ pub struct AccelerationOptions {
 /// 生成 UUID
 pub fn generate_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+/// 获取 Mutex 锁，自动处理毒化恢复
+///
+/// 当持有锁的线程 panic 时 Mutex 会被毒化，此函数自动恢复并记录警告日志。
+pub fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexGuard<'a, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("{} Mutex 被毒化，尝试恢复", label);
+        poisoned.into_inner()
+    })
 }
 
 /// 获取可执行文件所在目录

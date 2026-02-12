@@ -1,12 +1,24 @@
-// 视频命令
+// 视频处理命令模块
+//
+// 包含所有视频处理相关的 Tauri 命令：
+// - extract_audio: 从视频提取音频轨道
+// - separate_vocals: 人声/伴奏分离（GPU 信号量排队）
+// - match_video_segments: 滑动窗口音频指纹匹配
+// - cut_video / export_video: 视频剪辑与导出
+// - detect_persons: 人物检测（独立模块 commands/detection.rs）
+//
+// 并发控制：
+// - GPU_SEMAPHORE: 人声分离 GPU 信号量（同时只允许一个分离任务）
+// - CANCEL_FLAGS: 按项目 ID 管理的取消标志
+// - CHILD_PROCESSES: 按项目 ID 管理的子进程句柄（支持即时 kill）
 
 use crate::config::{self, AccelerationMode};
 use crate::database;
 use crate::error::{AppError, AppResult};
-use crate::utils::{VideoInfo, Segment, SegmentStatus, SeparationResult, CutParams, generate_id, hidden_command};
+use crate::utils::{VideoInfo, Segment, SegmentStatus, SegmentType, SeparationResult, CutParams, generate_id, hidden_command, lock_or_recover};
 use crate::video::ffmpeg;
 use crate::audio::{separator, fingerprint};
-use crate::audio::separator::GpuCapabilities;
+use crate::audio::separator::{GpuCapabilities, find_separation_outputs};
 use tauri::{Window, State};
 use crate::utils::AppState;
 use std::path::Path;
@@ -32,12 +44,12 @@ static GPU_SEMAPHORE: once_cell::sync::Lazy<tokio::sync::Semaphore> =
     once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(1));
 
 /// RAII 守卫：作用域结束时自动清理取消标志，防止内存泄漏
-struct CancelFlagGuard {
+pub(crate) struct CancelFlagGuard {
     project_id: String,
 }
 
 impl CancelFlagGuard {
-    fn new(project_id: String) -> Self {
+    pub(crate) fn new(project_id: String) -> Self {
         Self { project_id }
     }
 }
@@ -50,12 +62,8 @@ impl Drop for CancelFlagGuard {
 }
 
 /// 获取或创建项目的取消标志
-fn get_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
-    let mut flags = CANCEL_FLAGS.lock()
-        .unwrap_or_else(|poisoned| {
-            tracing::warn!("取消标志 Mutex 被毒化，尝试恢复");
-            poisoned.into_inner()
-        });
+pub(crate) fn get_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
+    let mut flags = lock_or_recover(&CANCEL_FLAGS, "取消标志");
     flags
         .entry(project_id.to_string())
         .or_insert_with(|| Arc::new(AtomicBool::new(false)))
@@ -63,12 +71,8 @@ fn get_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
 }
 
 /// 重置项目的取消标志（开始新操作时调用）
-fn reset_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
-    let mut flags = CANCEL_FLAGS.lock()
-        .unwrap_or_else(|poisoned| {
-            tracing::warn!("取消标志 Mutex 被毒化，尝试恢复");
-            poisoned.into_inner()
-        });
+pub(crate) fn reset_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
+    let mut flags = lock_or_recover(&CANCEL_FLAGS, "取消标志");
     let flag = flags
         .entry(project_id.to_string())
         .or_insert_with(|| Arc::new(AtomicBool::new(false)));
@@ -78,22 +82,14 @@ fn reset_cancel_flag(project_id: &str) -> Arc<AtomicBool> {
 
 /// 清理项目的取消标志（项目删除或操作完成后可选调用）
 pub fn remove_cancel_flag(project_id: &str) {
-    let mut flags = CANCEL_FLAGS.lock()
-        .unwrap_or_else(|poisoned| {
-            tracing::warn!("取消标志 Mutex 被毒化，尝试恢复");
-            poisoned.into_inner()
-        });
+    let mut flags = lock_or_recover(&CANCEL_FLAGS, "取消标志");
     flags.remove(project_id);
 }
 
 /// 注册子进程到项目（用于即时取消）
 pub fn register_child_process(project_id: &str, child: Child) -> Arc<Mutex<Option<Child>>> {
     let handle = Arc::new(Mutex::new(Some(child)));
-    let mut processes = CHILD_PROCESSES.lock()
-        .unwrap_or_else(|poisoned| {
-            tracing::warn!("子进程 Mutex 被毒化，尝试恢复");
-            poisoned.into_inner()
-        });
+    let mut processes = lock_or_recover(&CHILD_PROCESSES, "子进程");
     processes.entry(project_id.to_string())
         .or_insert_with(Vec::new)
         .push(handle.clone());
@@ -102,26 +98,18 @@ pub fn register_child_process(project_id: &str, child: Child) -> Arc<Mutex<Optio
 
 /// 清理项目的所有子进程句柄
 pub fn clear_child_processes(project_id: &str) {
-    let mut processes = CHILD_PROCESSES.lock()
-        .unwrap_or_else(|poisoned| {
-            tracing::warn!("子进程 Mutex 被毒化，尝试恢复");
-            poisoned.into_inner()
-        });
+    let mut processes = lock_or_recover(&CHILD_PROCESSES, "子进程");
     processes.remove(project_id);
 }
 
 /// kill 项目的所有子进程
-fn kill_child_processes(project_id: &str) {
-    let processes = CHILD_PROCESSES.lock()
-        .unwrap_or_else(|poisoned| {
-            tracing::warn!("子进程 Mutex 被毒化，尝试恢复");
-            poisoned.into_inner()
-        });
+pub(crate) fn kill_child_processes(project_id: &str) {
+    let processes = lock_or_recover(&CHILD_PROCESSES, "子进程");
     if let Some(handles) = processes.get(project_id) {
         for handle in handles {
             if let Ok(mut guard) = handle.lock() {
                 if let Some(ref mut child) = *guard {
-                    info!("正在终止子进程: project_id={}", project_id);
+                    info!("[PROCESS] 正在终止子进程: project_id={}", project_id);
                     let _ = child.kill();
                 }
             }
@@ -159,7 +147,7 @@ pub async fn check_cache_status(
     model_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<CacheStatus> {
-    info!("=== 检查缓存状态 === project_id={}, video_path={}, model_id={}", project_id, video_path, model_id);
+    info!("[CACHE] === 检查缓存状态 === project_id={}, model_id={}", project_id, model_id);
 
     let temp_dir = state.app_dir.join("temp");
 
@@ -168,13 +156,13 @@ pub async fn check_cache_status(
     let video_file = Path::new(&video_path);
 
     let audio_valid = if !audio_file.exists() {
-        info!("音频缓存未命中: 文件不存在 {}", audio_file.display());
+        info!("[CACHE] 音频缓存未命中: 文件不存在 {}", audio_file.display());
         false
     } else if !audio_file.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-        info!("音频缓存未命中: 文件为空 {}", audio_file.display());
+        info!("[CACHE] 音频缓存未命中: 文件为空 {}", audio_file.display());
         false
     } else if !video_file.exists() {
-        info!("音频缓存未命中: 源视频不存在 {}", video_path);
+        info!("[CACHE] 音频缓存未命中: 源视频不存在 {}", video_path);
         false
     } else {
         let audio_mtime = audio_file.metadata().and_then(|m| m.modified()).ok();
@@ -182,17 +170,17 @@ pub async fn check_cache_status(
         match (audio_mtime, video_mtime) {
             (Some(a), Some(v)) if a >= v => true,
             (Some(_), Some(_)) => {
-                info!("音频缓存未命中: 源视频更新于音频文件之后");
+                info!("[CACHE] 音频缓存未命中: 源视频更新于音频文件之后");
                 false
             }
             _ => {
-                info!("音频缓存未命中: 无法获取文件修改时间");
+                info!("[CACHE] 音频缓存未命中: 无法获取文件修改时间");
                 false
             }
         }
     };
 
-    info!("音频缓存有效: {}, 路径: {}", audio_valid, audio_file.display());
+    info!("[CACHE] 音频缓存有效: {}, 路径: {}", audio_valid, audio_file.display());
 
     // 2. 检查人声分离缓存（仅在音频缓存有效时才有意义）
     let separated_dir = temp_dir.join(format!("{}_separated", project_id));
@@ -203,72 +191,17 @@ pub async fn check_cache_status(
     if audio_valid && separated_dir.exists() {
         let audio_filename = format!("{}_audio", project_id);
         let sep_config = config::get_config();
-        let output_ext = &sep_config.separation.output_format;
 
         if let Some(model) = crate::models::get_model_by_id(&model_id) {
-            let model_name = model.filename
-                .replace(".onnx", "")
-                .replace(".ckpt", "")
-                .replace(".yaml", "");
+            let output = find_separation_outputs(
+                &separated_dir.to_string_lossy(),
+                &audio_filename,
+                &model.filename,
+                &sep_config.separation.output_format,
+            );
 
-            // 与 separator.rs 中相同的文件名搜索模式
-            let possible_instrumental = vec![
-                format!("{}_(Instrumental)_{}.{}", audio_filename, model_name, output_ext),
-                format!("{}_(Instrumental).{}", audio_filename, output_ext),
-                format!("{}_Instrumental.{}", audio_filename, output_ext),
-            ];
-            let possible_vocals = vec![
-                format!("{}_(Vocals)_{}.{}", audio_filename, model_name, output_ext),
-                format!("{}_(Vocals).{}", audio_filename, output_ext),
-                format!("{}_Vocals.{}", audio_filename, output_ext),
-            ];
-
-            // 查找伴奏文件
-            let find_file = |patterns: &[String]| -> Option<std::path::PathBuf> {
-                patterns.iter()
-                    .map(|name| separated_dir.join(name))
-                    .find(|p| p.exists() && p.metadata().map(|m| m.len() > 0).unwrap_or(false))
-            };
-
-            let found_acc = find_file(&possible_instrumental).or_else(|| {
-                // 模糊匹配
-                std::fs::read_dir(&separated_dir).ok().and_then(|entries| {
-                    entries.flatten().find_map(|entry| {
-                        let fname = entry.file_name().to_string_lossy().to_string();
-                        if fname.contains(&audio_filename)
-                            && (fname.to_lowercase().contains("instrument")
-                                || fname.to_lowercase().contains("no_vocal"))
-                        {
-                            let p = separated_dir.join(&fname);
-                            if p.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-                                return Some(p);
-                            }
-                        }
-                        None
-                    })
-                })
-            });
-
-            let found_voc = find_file(&possible_vocals).or_else(|| {
-                std::fs::read_dir(&separated_dir).ok().and_then(|entries| {
-                    entries.flatten().find_map(|entry| {
-                        let fname = entry.file_name().to_string_lossy().to_string();
-                        if fname.contains(&audio_filename)
-                            && (fname.to_lowercase().contains("vocal")
-                                || fname.to_lowercase().contains("voice"))
-                        {
-                            let p = separated_dir.join(&fname);
-                            if p.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-                                return Some(p);
-                            }
-                        }
-                        None
-                    })
-                })
-            });
-
-            if let (Some(acc), Some(voc)) = (&found_acc, &found_voc) {
-                info!("找到分离文件: 伴奏={}, 人声={}", acc.display(), voc.display());
+            if let (Some(acc), Some(voc)) = (&output.accompaniment_path, &output.vocals_path) {
+                info!("[CACHE] 找到分离文件: 伴奏={}, 人声={}", acc.display(), voc.display());
                 // 分离文件修改时间必须 ≥ 音频文件修改时间
                 let acc_mtime = acc.metadata().and_then(|m| m.modified()).ok();
                 let audio_mtime = audio_file.metadata().and_then(|m| m.modified()).ok();
@@ -279,22 +212,22 @@ pub async fn check_cache_status(
                         vocals_path_result = Some(voc.to_string_lossy().to_string());
                     }
                     (Some(_), Some(_)) => {
-                        info!("分离缓存未命中: 音频文件更新于分离文件之后");
+                        info!("[CACHE] 分离缓存未命中: 音频文件更新于分离文件之后");
                     }
                     _ => {
-                        info!("分离缓存未命中: 无法获取文件修改时间");
+                        info!("[CACHE] 分离缓存未命中: 无法获取文件修改时间");
                     }
                 }
             } else {
-                info!("分离缓存未命中: 未找到匹配的分离文件 (伴奏={}, 人声={})",
-                    found_acc.is_some(), found_voc.is_some());
+                info!("[CACHE] 分离缓存未命中: 未找到匹配的分离文件 (伴奏={}, 人声={})",
+                    output.accompaniment_path.is_some(), output.vocals_path.is_some());
             }
         } else {
-            info!("模型 {} 未找到，无法验证分离缓存", model_id);
+            info!("[CACHE] 模型 {} 未找到，无法验证分离缓存", model_id);
         }
     }
 
-    info!("分离缓存有效: {}", separation_valid);
+    info!("[CACHE] 分离缓存有效: {}", separation_valid);
 
     Ok(CacheStatus {
         audio_valid,
@@ -306,6 +239,9 @@ pub async fn check_cache_status(
 }
 
 /// 提取音频
+///
+/// 从视频文件中提取音频轨道，输出为 WAV 格式。
+/// 事件: `extract-progress` — 提取进度
 #[tauri::command]
 pub async fn extract_audio(
     window: Window,
@@ -313,13 +249,13 @@ pub async fn extract_audio(
     output_path: String,
     project_id: Option<String>,
 ) -> AppResult<String> {
-    info!("=== 开始提取音频 ===");
-    info!("视频路径: {}", video_path);
-    info!("输出路径: {}", output_path);
+    info!("[EXTRACT] === 开始提取音频 ===");
+    info!("[EXTRACT] 视频路径: {}", video_path);
+    info!("[EXTRACT] 输出路径: {}", output_path);
 
     // 检查视频文件是否存在
     if !Path::new(&video_path).exists() {
-        error!("视频文件不存在: {}", video_path);
+        error!("[EXTRACT] 视频文件不存在: {}", video_path);
         return Err(AppError::NotFound(format!("视频文件不存在: {}", video_path)));
     }
 
@@ -342,11 +278,14 @@ pub async fn extract_audio(
         })),
     )?;
 
-    info!("音频提取完成: {}", output_path);
+    info!("[EXTRACT] 音频提取完成: {}", output_path);
     Ok(output_path)
 }
 
 /// 人声分离
+///
+/// 流程：获取 GPU 许可 → 调用 audio-separator → 返回人声/伴奏路径
+/// 事件: `separation-queued` / `separation-progress` / `separation-complete`
 #[tauri::command]
 pub async fn separate_vocals(
     window: Window,
@@ -355,10 +294,10 @@ pub async fn separate_vocals(
     acceleration: Option<String>,
     project_id: Option<String>,
 ) -> AppResult<SeparationResult> {
-    info!("=== 开始人声分离命令 ===");
-    info!("音频路径: {}", audio_path);
-    info!("输出目录: {}", output_dir);
-    info!("加速选项: {:?}", acceleration);
+    info!("[SEPARATION] === 开始人声分离 ===");
+    info!("[SEPARATION] 音频路径: {}", audio_path);
+    info!("[SEPARATION] 输出目录: {}", output_dir);
+    info!("[SEPARATION] 加速选项: {:?}", acceleration);
 
     // 获取项目取消标志，如果没有 project_id 则使用默认标识
     let cancel_flag_id = project_id.clone().unwrap_or_else(|| "default".to_string());
@@ -368,11 +307,11 @@ pub async fn separate_vocals(
     // GPU 信号量排队：同一时间只允许一个分离任务运行，避免 GPU OOM
     let _permit = match GPU_SEMAPHORE.try_acquire() {
         Ok(permit) => {
-            info!("[GPU_QUEUE] 直接获取 GPU 许可: project_id={}", cancel_flag_id);
+            info!("[SEPARATION] 直接获取 GPU 许可: project_id={}", cancel_flag_id);
             permit
         }
         Err(_) => {
-            info!("[GPU_QUEUE] GPU 繁忙，排队等待: project_id={}", cancel_flag_id);
+            info!("[SEPARATION] GPU 繁忙，排队等待: project_id={}", cancel_flag_id);
             let _ = window.emit("separation-queued", serde_json::json!({
                 "project_id": project_id,
                 "message": "等待其他项目完成人声分离..."
@@ -384,7 +323,7 @@ pub async fn separate_vocals(
                     result = GPU_SEMAPHORE.acquire() => {
                         match result {
                             Ok(permit) => {
-                                info!("[GPU_QUEUE] 排队结束，获取 GPU 许可: project_id={}", cancel_flag_id);
+                                info!("[SEPARATION] 排队结束，获取 GPU 许可: project_id={}", cancel_flag_id);
                                 break permit;
                             }
                             Err(_) => {
@@ -394,7 +333,7 @@ pub async fn separate_vocals(
                     }
                     _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {
                         if cancel_flag.load(Ordering::SeqCst) {
-                            info!("[GPU_QUEUE] 排队等待中被取消: project_id={}", cancel_flag_id);
+                            info!("[SEPARATION] 排队等待中被取消: project_id={}", cancel_flag_id);
                             return Err(AppError::Cancelled);
                         }
                     }
@@ -413,7 +352,7 @@ pub async fn separate_vocals(
 
     // 检测 GPU 能力
     let gpu_caps = detect_gpu_capabilities();
-    info!("GPU 能力检测: ONNX_GPU={}", gpu_caps.onnx_gpu_available);
+    info!("[SEPARATION] GPU 能力检测: ONNX_GPU={}", gpu_caps.onnx_gpu_available);
 
     let _ = window.emit("separation-progress", serde_json::json!({
         "progress": 0.0,
@@ -452,6 +391,9 @@ pub async fn separate_vocals(
 }
 
 /// 匹配视频片段
+///
+/// 滑动窗口提取伴奏音频指纹，与音乐库指纹比对，合并连续匹配窗口为片段。
+/// 事件: `matching-progress` / `matching-complete`
 #[tauri::command]
 pub async fn match_video_segments(
     window: Window,
@@ -485,8 +427,7 @@ pub async fn match_video_segments(
     }));
 
     // 获取音频时长
-    let audio_info = ffmpeg::get_audio_duration(&accompaniment_path)?;
-    let total_duration = audio_info;
+    let total_duration = ffmpeg::get_audio_duration(&accompaniment_path)?;
 
     // 边界检查：视频时长必须大于窗口大小才能进行匹配
     if total_duration < window_size {
@@ -494,27 +435,27 @@ pub async fn match_video_segments(
             "视频时长 ({:.1}s) 小于最小匹配时长 ({:.1}s)，无法进行识别",
             total_duration, window_size
         );
-        info!("{}", msg);
+        info!("[MATCHING] {}", msg);
         return Err(AppError::InvalidArgument(msg));
     }
 
     // 获取音乐库指纹（支持自定义音乐列表）
     let library = match &music_ids {
         Some(ids) if !ids.is_empty() => {
-            info!("使用自定义音乐库: {} 首音乐, ID 列表: {:?}", ids.len(), ids);
+        info!("[MATCHING] 使用自定义音乐库: {} 首音乐, ID 列表: {:?}", ids.len(), ids);
             database::get_fingerprints_by_ids(ids)?
         }
         _ => {
-            info!("使用全部音乐库");
+            info!("[MATCHING] 使用全部音乐库");
             database::get_all_fingerprints()?
         }
     };
-    info!("音乐库加载完成: 共 {} 首音乐", library.len());
+    info!("[MATCHING] 音乐库加载完成: 共 {} 首音乐", library.len());
     if library.is_empty() {
         return Err(AppError::NotFound("音乐库为空，请先导入音乐".to_string()));
     }
 
-    // 清除该项目的旧匹配结果，避免重复匹配时结果累加
+    // 清除该项目的所有旧片段（音乐匹配 + 人物检测），每次任务输出全新结果
     database::delete_segments_by_project(&project_id)?;
 
     let temp_dir = tempfile::tempdir()?;
@@ -527,7 +468,6 @@ pub async fn match_video_segments(
         .collect();
 
     let actual_windows = window_times.len();
-    info!("开始并行匹配: {} 个窗口", actual_windows);
 
     // 进度计数器
     let processed_count = Arc::new(AtomicUsize::new(0));
@@ -540,6 +480,7 @@ pub async fn match_video_segments(
     let accompaniment_path_arc = Arc::new(accompaniment_path.clone());
 
     let num_threads = num_cpus::get().saturating_sub(2).max(1);
+    info!("[MATCHING] 开始并行匹配: {} 个窗口, 线程数={}", actual_windows, num_threads);
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .build()
@@ -648,6 +589,7 @@ pub async fn match_video_segments(
                             end_time: end_time.min(total_duration),
                             confidence: *conf,
                             status: SegmentStatus::Detected,
+                            segment_type: SegmentType::Music,
                         });
                     }
                     // 开始新的匹配片段
@@ -667,6 +609,7 @@ pub async fn match_video_segments(
                         end_time: end_time.min(total_duration),
                         confidence: *conf,
                         status: SegmentStatus::Detected,
+                        segment_type: SegmentType::Music,
                     });
                 }
                 // 开始新的匹配
@@ -688,6 +631,7 @@ pub async fn match_video_segments(
                 end_time: end_time.min(total_duration),
                 confidence: conf,
                 status: SegmentStatus::Detected,
+                segment_type: SegmentType::Music,
             });
         }
     }
@@ -711,7 +655,9 @@ pub async fn match_video_segments(
     Ok(segments)
 }
 
-/// 剪辑视频（重编码模式）
+/// 剪辑视频
+///
+/// force_reencode: 为 true 时强制重编码（精确切割），默认 false 使用无损模式
 #[tauri::command]
 pub async fn cut_video(
     window: Window,
@@ -723,11 +669,15 @@ pub async fn cut_video(
     let project = database::get_project_by_id(&params.project_id)?
         .ok_or_else(|| AppError::NotFound("项目不存在".to_string()))?;
 
-    info!("=== 开始剪辑视频（重编码模式）===");
+    info!("[CUT] === 开始剪辑视频 ===");
     info!("[CUT] 项目ID: {}", params.project_id);
     info!("[CUT] 源视频: {}", project.source_video_path);
     info!("[CUT] 输出路径: {}", params.output_path);
     info!("[CUT] 保留匹配片段: {}", params.keep_matched);
+
+    let reencode = params.force_reencode.unwrap_or(false);
+    let prefer_lossless = !reencode;
+    info!("[CUT] 强制重编码: {}, prefer_lossless: {}", reencode, prefer_lossless);
 
     let _ = window.emit("cut-progress", serde_json::json!({
         "progress": 0.0,
@@ -751,6 +701,7 @@ pub async fn cut_video(
         })),
         cancel_flag,
         &params.project_id,
+        prefer_lossless,
     )?;
 
     info!("[CUT] 剪辑完成: {}", params.output_path);
@@ -763,12 +714,15 @@ pub async fn cut_video(
     Ok(params.output_path)
 }
 
-/// 导出视频（重编码模式）
+/// 导出视频
+///
+/// force_reencode: 为 true 时强制重编码（精确切割），默认 false 使用无损模式
 #[tauri::command]
 pub async fn export_video(
     window: Window,
     project_id: String,
     output_path: String,
+    force_reencode: Option<bool>,
 ) -> AppResult<String> {
     let _guard = CancelFlagGuard::new(project_id.clone());
     let cancel_flag = reset_cancel_flag(&project_id);
@@ -782,10 +736,32 @@ pub async fn export_video(
         return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
     }
 
-    info!("=== 开始导出视频（重编码模式）===");
+    let reencode = force_reencode.unwrap_or(false);
+    let mode_str = if reencode { "重编码" } else { "无损" };
+    info!("[EXPORT] === 开始导出视频（{}模式）===", mode_str);
     info!("[EXPORT] 项目ID: {}", project_id);
     info!("[EXPORT] 源视频: {}", project.source_video_path);
     info!("[EXPORT] 输出路径: {}", output_path);
+
+    // 详细记录从数据库读取的片段信息，用于排查导出内容与时间轴不一致的问题
+    let total_count = project.segments.len();
+    let detected_count = project.segments.iter().filter(|s| s.status == crate::utils::SegmentStatus::Detected).count();
+    let removed_count = project.segments.iter().filter(|s| s.status == crate::utils::SegmentStatus::Removed).count();
+    let music_count = project.segments.iter().filter(|s| s.segment_type == crate::utils::SegmentType::Music).count();
+    let person_count = project.segments.iter().filter(|s| s.segment_type == crate::utils::SegmentType::Person).count();
+    info!("[EXPORT] 数据库片段统计: 总计={}, detected={}, removed={}, music={}, person={}",
+        total_count, detected_count, removed_count, music_count, person_count);
+    for (i, s) in project.segments.iter().enumerate() {
+        info!(
+            "[EXPORT]   片段[{}]: id={}, {:.2}s - {:.2}s (时长 {:.2}s), status={:?}, type={:?}, confidence={:.2}",
+            i, s.id, s.start_time, s.end_time, s.end_time - s.start_time, s.status, s.segment_type, s.confidence
+        );
+    }
+    let total_detected_duration: f64 = project.segments.iter()
+        .filter(|s| s.status == crate::utils::SegmentStatus::Detected)
+        .map(|s| s.end_time - s.start_time)
+        .sum();
+    info!("[EXPORT] 将导出的片段总时长（合并前）: {:.2}s", total_detected_duration);
 
     let _ = window.emit("export-progress", serde_json::json!({
         "progress": 0.0,
@@ -795,7 +771,7 @@ pub async fn export_video(
 
     let window_clone = window.clone();
     let project_id_clone = project_id.clone();
-    if let Err(e) = ffmpeg::export_video(
+    if let Err(e) = ffmpeg::export_video_with_mode(
         &project.source_video_path,
         &output_path,
         &project.segments,
@@ -808,6 +784,7 @@ pub async fn export_video(
         })),
         cancel_flag,
         &project_id,
+        !reencode, // prefer_lossless = !force_reencode
     ) {
         error!("[EXPORT] 导出失败: {}", e);
         return Err(e);
@@ -824,11 +801,14 @@ pub async fn export_video(
 }
 
 /// 分别导出视频片段（每个片段单独导出）
+///
+/// force_reencode: 为 true 时强制重编码（精确切割），默认 false 使用无损模式
 #[tauri::command]
 pub async fn export_video_separately(
     window: Window,
     project_id: String,
     output_dir: String,
+    force_reencode: Option<bool>,
 ) -> AppResult<serde_json::Value> {
     let _guard = CancelFlagGuard::new(project_id.clone());
     let cancel_flag = reset_cancel_flag(&project_id);
@@ -842,10 +822,32 @@ pub async fn export_video_separately(
         return Err(AppError::NotFound(format!("源视频文件不存在: {}", project.source_video_path)));
     }
 
-    info!("=== 开始分别导出视频片段 ===");
+    let reencode_sep = force_reencode.unwrap_or(false);
+    let mode_str_sep = if reencode_sep { "重编码" } else { "无损" };
+    info!("[EXPORT_SEP] === 开始分别导出视频片段（{}模式）===", mode_str_sep);
     info!("[EXPORT_SEP] 项目ID: {}", project_id);
     info!("[EXPORT_SEP] 源视频: {}", project.source_video_path);
     info!("[EXPORT_SEP] 输出目录: {}", output_dir);
+
+    // 详细记录从数据库读取的片段信息
+    let total_count = project.segments.len();
+    let detected_count = project.segments.iter().filter(|s| s.status == crate::utils::SegmentStatus::Detected).count();
+    let removed_count = project.segments.iter().filter(|s| s.status == crate::utils::SegmentStatus::Removed).count();
+    let music_count = project.segments.iter().filter(|s| s.segment_type == crate::utils::SegmentType::Music).count();
+    let person_count = project.segments.iter().filter(|s| s.segment_type == crate::utils::SegmentType::Person).count();
+    info!("[EXPORT_SEP] 数据库片段统计: 总计={}, detected={}, removed={}, music={}, person={}",
+        total_count, detected_count, removed_count, music_count, person_count);
+    for (i, s) in project.segments.iter().enumerate() {
+        info!(
+            "[EXPORT_SEP]   片段[{}]: id={}, {:.2}s - {:.2}s (时长 {:.2}s), status={:?}, type={:?}, confidence={:.2}",
+            i, s.id, s.start_time, s.end_time, s.end_time - s.start_time, s.status, s.segment_type, s.confidence
+        );
+    }
+    let total_detected_duration: f64 = project.segments.iter()
+        .filter(|s| s.status == crate::utils::SegmentStatus::Detected)
+        .map(|s| s.end_time - s.start_time)
+        .sum();
+    info!("[EXPORT_SEP] 将导出的片段总时长（合并前）: {:.2}s", total_detected_duration);
 
     let _ = window.emit("export-progress", serde_json::json!({
         "progress": 0.0,
@@ -855,7 +857,7 @@ pub async fn export_video_separately(
 
     let window_clone = window.clone();
     let project_id_clone = project_id.clone();
-    let output_files = match ffmpeg::export_video_separately(
+    let output_files = match ffmpeg::export_video_separately_with_mode(
         &project.source_video_path,
         &output_dir,
         &project.segments,
@@ -868,6 +870,7 @@ pub async fn export_video_separately(
         })),
         cancel_flag,
         &project_id,
+        !reencode_sep, // prefer_lossless = !force_reencode
     ) {
         Ok(files) => files,
         Err(e) => {
@@ -898,6 +901,7 @@ pub async fn export_custom_clip(
     start_time: f64,
     end_time: f64,
     output_path: String,
+    force_reencode: Option<bool>,
 ) -> AppResult<String> {
     let _guard = CancelFlagGuard::new(project_id.clone());
     let cancel_flag = reset_cancel_flag(&project_id);
@@ -920,11 +924,15 @@ pub async fn export_custom_clip(
     }
 
     let duration = end_time - start_time;
-    info!("=== 开始导出自定义剪辑片段 ===");
+    info!("[EXPORT_CUSTOM] === 开始导出自定义剪辑片段 ===");
     info!("[EXPORT_CUSTOM] 项目ID: {}", project_id);
     info!("[EXPORT_CUSTOM] 源视频: {}", project.source_video_path);
     info!("[EXPORT_CUSTOM] 时间范围: {:.3}s - {:.3}s (时长: {:.3}s)", start_time, end_time, duration);
     info!("[EXPORT_CUSTOM] 输出路径: {}", output_path);
+
+    let reencode = force_reencode.unwrap_or(false);
+    let prefer_lossless = !reencode;
+    info!("[EXPORT_CUSTOM] 强制重编码: {}, prefer_lossless: {}", reencode, prefer_lossless);
 
     let _ = window.emit("export-progress", serde_json::json!({
         "progress": 0.0,
@@ -936,7 +944,7 @@ pub async fn export_custom_clip(
     let project_id_clone = project_id.clone();
 
     // 使用 ffmpeg 导出指定时间范围的视频
-    if let Err(e) = ffmpeg::export_custom_segment(
+    if let Err(e) = ffmpeg::export_custom_segment_with_mode(
         &project.source_video_path,
         &output_path,
         start_time,
@@ -950,6 +958,7 @@ pub async fn export_custom_clip(
         })),
         cancel_flag,
         &project_id,
+        prefer_lossless,
     ) {
         error!("[EXPORT_CUSTOM] 导出失败: {}", e);
         return Err(e);
@@ -979,6 +988,7 @@ pub async fn export_custom_clips_merged(
     project_id: String,
     segments: Vec<CustomClipRange>,
     output_path: String,
+    force_reencode: Option<bool>,
 ) -> AppResult<String> {
     let _guard = CancelFlagGuard::new(project_id.clone());
     let cancel_flag = reset_cancel_flag(&project_id);
@@ -1013,11 +1023,15 @@ pub async fn export_custom_clips_merged(
     // 合并重叠片段
     let merged = ffmpeg::merge_overlapping_segments(&time_ranges);
 
-    info!("=== 开始合并导出自定义剪辑片段 ===");
+    info!("[EXPORT_CUSTOM_MERGED] === 开始合并导出自定义剪辑片段 ===");
     info!("[EXPORT_CUSTOM_MERGED] 项目ID: {}", project_id);
     info!("[EXPORT_CUSTOM_MERGED] 源视频: {}", project.source_video_path);
     info!("[EXPORT_CUSTOM_MERGED] 片段数: {} (合并后: {})", segments.len(), merged.len());
     info!("[EXPORT_CUSTOM_MERGED] 输出路径: {}", output_path);
+
+    let reencode = force_reencode.unwrap_or(false);
+    let prefer_lossless = !reencode;
+    info!("[EXPORT_CUSTOM_MERGED] 强制重编码: {}, prefer_lossless: {}", reencode, prefer_lossless);
 
     let _ = window.emit("export-progress", serde_json::json!({
         "progress": 0.0,
@@ -1046,7 +1060,7 @@ pub async fn export_custom_clips_merged(
         })),
         cancel_flag,
         &project_id,
-        true,
+        prefer_lossless,
     ) {
         error!("[EXPORT_CUSTOM_MERGED] 导出失败: {}", e);
         return Err(e);
@@ -1069,6 +1083,7 @@ pub async fn export_custom_clips_separately(
     project_id: String,
     segments: Vec<CustomClipRange>,
     output_dir: String,
+    force_reencode: Option<bool>,
 ) -> AppResult<serde_json::Value> {
     let _guard = CancelFlagGuard::new(project_id.clone());
     let cancel_flag = reset_cancel_flag(&project_id);
@@ -1098,11 +1113,15 @@ pub async fn export_custom_clips_separately(
 
     let total_segments = segments.len();
 
-    info!("=== 开始分别导出自定义剪辑片段 ===");
+    info!("[EXPORT_CUSTOM_SEP] === 开始分别导出自定义剪辑片段 ===");
     info!("[EXPORT_CUSTOM_SEP] 项目ID: {}", project_id);
     info!("[EXPORT_CUSTOM_SEP] 源视频: {}", project.source_video_path);
     info!("[EXPORT_CUSTOM_SEP] 片段数: {}", total_segments);
     info!("[EXPORT_CUSTOM_SEP] 输出目录: {}", output_dir);
+
+    let reencode = force_reencode.unwrap_or(false);
+    let prefer_lossless = !reencode;
+    info!("[EXPORT_CUSTOM_SEP] 强制重编码: {}, prefer_lossless: {}", reencode, prefer_lossless);
 
     let _ = window.emit("export-progress", serde_json::json!({
         "progress": 0.0,
@@ -1195,7 +1214,7 @@ pub async fn export_custom_clips_separately(
                     *end_time,
                     &[&cancel_flag, &internal_cancel],
                     &project_id_clone,
-                    true,
+                    prefer_lossless,
                 ) {
                     Ok(()) => {
                         let completed = completed_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1266,6 +1285,7 @@ pub async fn export_custom_clips_separately(
         "output_files": output_files
     }))
 }
+/// 获取视频缩略图
 #[tauri::command]
 pub async fn get_video_thumbnail(
     video_path: String,
@@ -1273,42 +1293,35 @@ pub async fn get_video_thumbnail(
     time: Option<f64>,
 ) -> AppResult<String> {
     info!(
-        "thumbnail request: video_path={}, output_path={}, time={:?}",
+        "[THUMBNAIL] 缩略图请求: video_path={}, output_path={}, time={:?}",
         video_path, output_path, time
     );
 
     // 检查缩略图是否已存在，如果存在则直接返回
     let output_file = Path::new(&output_path);
     if output_file.exists() {
-        info!("thumbnail already exists, skipping generation: {}", output_path);
+        info!("[THUMBNAIL] 缩略图已存在，跳过生成: {}", output_path);
         return Ok(output_path);
     }
 
     let timestamp = time.unwrap_or(0.0);
-    info!("thumbnail timestamp resolved: {}", timestamp);
     if !Path::new(&video_path).exists() {
-        info!("thumbnail video missing: {}", video_path);
-    }
-    if let Some(parent) = output_file.parent() {
-        info!(
-            "thumbnail output dir: {:?}, exists={}",
-            parent,
-            parent.exists()
-        );
+        error!("[THUMBNAIL] 视频文件不存在: {}", video_path);
+        return Err(AppError::NotFound(format!("视频文件不存在: {}", video_path)));
     }
 
     if let Err(e) = ffmpeg::extract_thumbnail(&video_path, &output_path, timestamp) {
-        error!("thumbnail failed: {}", e);
+        error!("[THUMBNAIL] 生成失败: {}", e);
         return Err(e);
     }
-    info!("thumbnail generated: {}", output_path);
+    info!("[THUMBNAIL] 生成完成: {}", output_path);
     Ok(output_path)
 }
 
 /// 检测视频是否需要转码预览
 #[tauri::command]
 pub async fn check_needs_preview(video_path: String) -> AppResult<bool> {
-    info!("检测视频是否需要预览转码: {}", video_path);
+    info!("[PREVIEW] 检测视频是否需要预览转码: {}", video_path);
 
     if !Path::new(&video_path).exists() {
         return Err(AppError::NotFound(format!("视频文件不存在: {}", video_path)));
@@ -1318,7 +1331,7 @@ pub async fn check_needs_preview(video_path: String) -> AppResult<bool> {
     let needs_preview = ffmpeg::needs_preview_transcode(&video_info);
 
     info!(
-        "视频格式检测结果: format={}, codec={}, needs_preview={}",
+        "[PREVIEW] 视频格式检测结果: format={}, codec={}, needs_preview={}",
         video_info.format, video_info.video_codec, needs_preview
     );
 
@@ -1333,9 +1346,9 @@ pub async fn generate_preview_video(
     output_path: String,
     project_id: Option<String>,
 ) -> AppResult<String> {
-    info!("=== 开始生成预览视频 ===");
-    info!("源视频: {}", source_path);
-    info!("输出路径: {}", output_path);
+    info!("[PREVIEW] === 开始生成预览视频 ===");
+    info!("[PREVIEW] 源视频: {}", source_path);
+    info!("[PREVIEW] 输出路径: {}", output_path);
 
     if !Path::new(&source_path).exists() {
         return Err(AppError::NotFound(format!("源视频文件不存在: {}", source_path)));
@@ -1343,7 +1356,7 @@ pub async fn generate_preview_video(
 
     // 如果预览文件已存在，直接返回
     if Path::new(&output_path).exists() {
-        info!("预览视频已存在，跳过生成: {}", output_path);
+        info!("[PREVIEW] 预览视频已存在，跳过生成: {}", output_path);
         return Ok(output_path);
     }
 
@@ -1380,7 +1393,7 @@ pub async fn generate_preview_video(
         "project_id": project_id
     }));
 
-    info!("预览视频生成完成: {}", output_path);
+    info!("[PREVIEW] 预览视频生成完成: {}", output_path);
     Ok(output_path)
 }
 
@@ -1396,7 +1409,7 @@ pub async fn cancel_processing(project_id: Option<String>) -> AppResult<()> {
     // 2. 立即 kill 所有子进程，实现即时取消
     kill_child_processes(&flag_id);
 
-    info!("取消处理请求: project_id={}, 已终止所有子进程", flag_id);
+    info!("[CANCEL] 取消处理请求: project_id={}, 已终止所有子进程", flag_id);
     Ok(())
 }
 
@@ -1412,16 +1425,16 @@ pub async fn cancel_preview_generation(project_id: Option<String>) -> AppResult<
     // 2. 立即 kill 预览生成的子进程
     kill_child_processes(&flag_id);
 
-    info!("取消预览生成请求: flag_id={}, 已终止预览生成进程", flag_id);
+    info!("[CANCEL] 取消预览生成请求: flag_id={}, 已终止预览生成进程", flag_id);
     Ok(())
 }
 
 /// 检测 GPU 能力（使用缓存，整个应用生命周期只检测一次）
 pub fn detect_gpu_capabilities() -> GpuCapabilities {
     GPU_CAPS_CACHE.get_or_init(|| {
-        info!("首次检测 GPU 能力...");
+        info!("[GPU] 首次检测 GPU 能力...");
         let onnx_gpu_available = check_onnx_gpu();
-        info!("GPU 能力检测完成: ONNX_GPU={}", onnx_gpu_available);
+        info!("[GPU] 检测完成: ONNX_GPU={}", onnx_gpu_available);
         GpuCapabilities {
             onnx_gpu_available,
         }
@@ -1439,7 +1452,7 @@ pub fn preload_gpu_capabilities() {
 /// 通过打包的 audio-separator 检测，不依赖系统 Python 环境
 fn check_onnx_gpu() -> bool {
     let separator_path = separator::resolve_separator_path();
-    info!("使用 audio-separator 检测 GPU: {}", separator_path);
+    info!("[GPU] 使用 audio-separator 检测 GPU: {}", separator_path);
 
     // 传递 --model_file_dir 到系统临时目录，避免 audio-separator 在默认路径
     // (/tmp/audio-separator-models/) 创建空文件夹
@@ -1457,11 +1470,11 @@ fn check_onnx_gpu() -> bool {
             let has_dml = stderr.contains("DmlExecutionProvider");
             let has_tensorrt = stderr.contains("TensorrtExecutionProvider");
             let result = has_cuda || has_dml || has_tensorrt;
-            info!("audio-separator GPU 检测: CUDA={}, DML={}, TensorRT={}", has_cuda, has_dml, has_tensorrt);
+            info!("[GPU] audio-separator 检测: CUDA={}, DML={}, TensorRT={}", has_cuda, has_dml, has_tensorrt);
             result
         }
         Err(e) => {
-            info!("audio-separator 检测失败，回退到系统 Python 检测: {}", e);
+            info!("[GPU] audio-separator 检测失败，回退到系统 Python 检测: {}", e);
             // 回退：尝试系统 Python（兼容开发环境）
             check_onnx_gpu_via_python()
         }

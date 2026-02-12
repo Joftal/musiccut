@@ -23,6 +23,8 @@
 ```
 
 > 🔧 脚本会自动安装 Node.js 依赖、Python 虚拟环境、audio-separator 及 ONNX Runtime GPU
+>
+> 💡 人物检测功能需要额外构建 person-detector，详见[构建发布](#-构建发布)章节
 
 ### ▶️ 启动开发服务器
 
@@ -107,6 +109,12 @@ npm install
 .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
 ```
 
+4. ✔️ 打包 person-detector（首次构建，人物检测功能）：
+
+```powershell
+python .\scripts\build_person_detector.py
+```
+
 ### 🔨 构建命令
 
 ```powershell
@@ -122,7 +130,8 @@ dist/
 │   ├── 🎯 MusicCut.exe          # 主程序
 │   ├── 📂 ffmpeg/               # FFmpeg 工具
 │   ├── 📂 models/               # AI 模型
-│   └── 📂 audio-separator/      # 人声分离工具
+│   ├── 📂 audio-separator/      # 人声分离工具
+│   └── 📂 person-detector/      # 人物检测工具
 └── 📦 MusicCut_1.0.0_x64.7z     # 发布包
 ```
 
@@ -197,6 +206,17 @@ python --version  # 检查版本
 | 📂 存储位置 | `models/audio-separator/` |
 
 > 💡 模型文件约 100MB，首次下载需要稳定的网络连接
+
+---
+
+## 👤 人物检测模型
+
+| 模型 | 说明 |
+|:---|:---|
+| 📥 YOLOv11s | 人物检测模型，首次使用时自动下载 |
+| 📂 存储位置 | `models/person-detector/yolov11s/` |
+
+> 💡 模型文件约 20MB，需要 PyTorch + CUDA 环境以获得 GPU 加速
 
 ---
 

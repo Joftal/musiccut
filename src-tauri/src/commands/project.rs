@@ -2,7 +2,7 @@
 
 use crate::database;
 use crate::error::{AppError, AppResult};
-use crate::utils::{AppState, Project, Segment, generate_id};
+use crate::utils::{AppState, Project, Segment, SegmentStatus, SegmentType, generate_id};
 use crate::video::ffmpeg;
 use chrono::Local;
 use tauri::{State, Window};
@@ -113,6 +113,14 @@ fn cleanup_project_files(id: &str, app_dir: &std::path::Path) {
             info!("删除分离目录失败: {:?}, 错误: {}", separated_dir, e);
         }
     }
+
+    // 删除人物检测输出目录（包含检测结果 JSON 等文件）
+    let detection_dir = temp_dir.join(format!("{}_detection", id));
+    if detection_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&detection_dir) {
+            info!("删除检测目录失败: {:?}, 错误: {}", detection_dir, e);
+        }
+    }
 }
 
 /// 删除项目
@@ -155,9 +163,31 @@ pub async fn update_segments(
     database::get_project_by_id(&project_id)?
         .ok_or_else(|| AppError::NotFound(format!("项目不存在: {}", project_id)))?;
 
+    // 记录前端传入的片段详情
+    let detected = segments.iter().filter(|s| s.status == SegmentStatus::Detected).count();
+    let removed = segments.iter().filter(|s| s.status == SegmentStatus::Removed).count();
+    let music = segments.iter().filter(|s| s.segment_type == SegmentType::Music).count();
+    let person = segments.iter().filter(|s| s.segment_type == SegmentType::Person).count();
+    info!("[UPDATE_SEGMENTS] project_id={}, 写入片段: 总计={}, detected={}, removed={}, music={}, person={}",
+        project_id, segments.len(), detected, removed, music, person);
+    for (i, s) in segments.iter().enumerate() {
+        info!(
+            "[UPDATE_SEGMENTS]   片段[{}]: id={}, {:.2}s - {:.2}s (时长 {:.2}s), status={:?}, type={:?}",
+            i, s.id, s.start_time, s.end_time, s.end_time - s.start_time, s.status, s.segment_type
+        );
+    }
+
     // 删除旧片段并插入新片段
     database::delete_segments_by_project(&project_id)?;
     database::batch_update_segments(&segments)?;
+
+    // 验证写入后的数据库状态
+    let db_segments = database::get_segments_by_project(&project_id)?;
+    info!("[UPDATE_SEGMENTS] 写入后数据库验证: {} 个片段", db_segments.len());
+    if db_segments.len() != segments.len() {
+        error!("[UPDATE_SEGMENTS] ⚠ 数据库片段数 ({}) 与传入片段数 ({}) 不一致!",
+            db_segments.len(), segments.len());
+    }
 
     // 更新项目时间
     if let Some(mut project) = database::get_project_by_id(&project_id)? {

@@ -92,7 +92,10 @@ Add-CleanupItem -Path (Join-Path $ProjectRoot "node_modules") `
 
 # Tools directory
 Add-CleanupItem -Path (Join-Path $ProjectRoot "tools\venv") `
-    -Category "Project" -Description "Python virtual environment"
+    -Category "Project" -Description "Python virtual environment (audio-separator)"
+
+Add-CleanupItem -Path (Join-Path $ProjectRoot "tools\venv-detector") `
+    -Category "Project" -Description "Python virtual environment (person-detector)"
 
 Add-CleanupItem -Path (Join-Path $ProjectRoot "tools\downloads") `
     -Category "Project" -Description "Downloaded archives"
@@ -275,7 +278,7 @@ TOTAL: $($CleanupItems.Count) items, $totalSizeStr
 
 WARNING:
 - Deleting node_modules will require running 'npm install' again
-- Deleting tools/venv will require running setup.ps1 again
+- Deleting tools/venv or tools/venv-detector will require running setup.ps1 again
 - Deleting Rust target/ will require recompilation
 - System cache deletion may affect other projects using the same tools
 - FFmpeg binaries in ffmpeg/ folder are NOT deleted (bundled with project)

@@ -43,7 +43,6 @@
     "selectFolder": "Select Folder",
     "selectFile": "Select File",
     "saveFile": "Save File",
-    "selectDirectory": "Select Directory",
     "pathTooLong": "Path too long ({{length}}/{{max}} characters), please choose a shorter path or rename the file",
     "pathTooLongSeparate": "Path too long ({{length}}/{{max}} characters), generated filenames may exceed system limits, please choose a shorter path or rename the file",
     "fileNameTooLong": "Filename is long ({{length}} characters), export may fail due to path length, consider renaming before import"
@@ -147,10 +146,11 @@
   "editor": {
     "selectProject": "Please select or create a project from the project list",
     "backToProjects": "Back to Projects",
-    "downloadModelFirst": "Please download model first",
     "allMusic": "All Music",
     "songsSelected": "{{count}} songs",
     "startRecognition": "Start Recognition",
+    "startDetection": "Person Detection",
+    "cancelDetection": "Cancel Detection",
     "gpuAcceleration": "GPU Acceleration",
     "cpuOnly": "CPU Only",
     "segments": {
@@ -158,7 +158,9 @@
       "count": "{{count}} segments",
       "empty": "No segments detected",
       "emptyHint": "Click \"Start Recognition\" to detect",
-      "unknownMusic": "Unknown Music"
+      "unknownMusic": "Unknown Music",
+      "musicSegment": "Music Segment",
+      "personSegment": "Person Segment"
     },
     "timeline": {
       "normalMode": "Normal Mode",
@@ -187,7 +189,10 @@
       "selectSavePath": "Select save location",
       "selectOutputDir": "Select output directory",
       "exportHintMerged": "Merge {{count}} segments into one file. Lossless cut preferred, auto re-encode if needed.",
-      "exportHintSeparate": "Export {{count}} segments as separate files. Lossless cut preferred, auto re-encode if needed."
+      "exportHintSeparate": "Export {{count}} segments as separate files. Lossless cut preferred, auto re-encode if needed.",
+      "forceReencode": "Force Re-encode",
+      "forceReencodeDesc": "Precisely cut segment boundaries. Slower but more accurate output.",
+      "reencodeHint": "{{count}} short gap(s) detected. Lossless mode may include gap content. Consider enabling re-encode."
     },
     "toast": {
       "noModel": "No model available",
@@ -216,7 +221,12 @@
       "previewFailedDesc": "Video may not play properly, but analysis and export still work",
       "customClipExportCancelled": "{{name}} custom clip export cancelled",
       "rangeTooShort": "Time range too short",
-      "rangeTooShortDesc": "Please select at least 0.1 seconds"
+      "rangeTooShortDesc": "Please select at least 0.1 seconds",
+      "detectionComplete": "{{name}} person detection complete",
+      "detectionSegments": "Detected {{count}} person segments",
+      "detectionFailed": "Person detection failed",
+      "detectionCancelled": "{{name}} person detection cancelled",
+      "detectionModelNotFound": "Detection model not found, please download it first"
     },
     "progress": {
       "generatingPreview": "Generating preview video (format not supported for direct playback)...",
@@ -226,12 +236,17 @@
       "extractingAudio": "Extracting audio...",
       "separatingVocals": "Separating vocals...",
       "separationQueued": "Waiting for other project to finish vocal separation...",
-      "matchingSegments": "Matching audio segments..."
+      "matchingSegments": "Matching audio segments...",
+      "detectingPersons": "Detecting persons...",
+      "detectionQueued": "Waiting for other detection task to finish..."
     }
   },
   "model": {
     "mdxInstHq3": {
       "description": "Fast and high quality, suitable for most scenarios"
+    },
+    "yolov11s": {
+      "description": "Lightweight person detection model"
     }
   },
   "settings": {
@@ -265,6 +280,19 @@
       "downloaded": "Downloaded",
       "downloading": "Downloading",
       "modelHint": "Click \"Download\" to pre-download models."
+    },
+    "detection": {
+      "title": "Person Detection Settings",
+      "confidenceThreshold": "Confidence Threshold",
+      "confidenceThresholdDesc": "Detection confidence threshold, below this value won't be recognized as a person (0.1-1.0)",
+      "frameInterval": "Frame Interval",
+      "frameIntervalDesc": "Detect every N frames, smaller values give higher precision but slower speed (1-30)",
+      "minSegmentDuration": "Minimum Segment Duration (sec)",
+      "minSegmentDurationDesc": "Minimum duration for detected segments, shorter segments will be ignored",
+      "maxGapDuration": "Maximum Gap Duration (sec)",
+      "maxGapDurationDesc": "Adjacent detection segments with gaps smaller than this value will be merged",
+      "model": "Detection Model",
+      "modelHint": "Click \"Download\" to pre-download detection models."
     },
     "log": {
       "title": "Log Settings",
@@ -342,6 +370,7 @@
     "queued": "Queued",
     "separating": "Separating Vocals",
     "matching": "Matching",
+    "detecting": "Detecting Persons",
     "analyzed": "Analyzed",
     "exporting": "Exporting",
     "exported": "Exported"

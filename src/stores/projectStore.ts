@@ -13,6 +13,7 @@ type ProjectStage =
   | 'queued'         // 排队等待分离
   | 'separating'     // 人声分离
   | 'matching'       // 音频匹配
+  | 'detecting'      // 人物检测
   | 'exporting'      // 视频导出
   | 'analyzed'       // 分析完成（常驻）
   | 'exported';      // 导出完成
@@ -294,6 +295,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }
       });
       unlisteners.push(unlisten4);
+
+      // 人物检测排队
+      const unlistenDetQueued = await api.onDetectionQueued((data) => {
+        if (data.project_id) {
+          statusBuffer[data.project_id] = {
+            stage: 'queued',
+            progress: 0,
+          };
+        }
+      });
+      unlisteners.push(unlistenDetQueued);
+
+      // 人物检测进度
+      const unlisten5 = await api.onDetectionProgress((progress) => {
+        if (progress.project_id) {
+          if (progress.progress >= 1) {
+            delete statusBuffer[progress.project_id];
+            completedStatus[progress.project_id] = 'analyzed';
+            flushStatusBuffer();
+            get().loadProjects();
+          } else {
+            statusBuffer[progress.project_id] = {
+              stage: 'detecting',
+              progress: Math.round(progress.progress * 100) / 100
+            };
+          }
+        }
+      });
+      unlisteners.push(unlisten5);
     };
 
     setupListeners().catch((err) => {
@@ -323,6 +353,7 @@ export const STAGE_CONFIG: Record<ProjectStage, { color: string }> = {
   queued: { color: 'text-yellow-500' },
   separating: { color: 'text-primary-500' },
   matching: { color: 'text-primary-500' },
+  detecting: { color: 'text-primary-500' },
   exporting: { color: 'text-primary-500' },
   analyzed: { color: 'text-green-500' },
   exported: { color: 'text-green-500' },
