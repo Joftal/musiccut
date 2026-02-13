@@ -48,7 +48,6 @@ const Settings: React.FC = () => {
   } = useSystemStore();
   const {
     models,
-    loading: modelsLoading,
     loadAll: loadModels,
     isModelDownloaded,
     isModelDownloading,
@@ -63,7 +62,7 @@ const Settings: React.FC = () => {
   const [localConfig, setLocalConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const [loadingStorage, setLoadingStorage] = useState(false);
+  const [, setLoadingStorage] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [resettingDb, setResettingDb] = useState(false);
   const [resettingConfig, setResettingConfig] = useState(false);
