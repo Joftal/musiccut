@@ -30,6 +30,7 @@ block_cipher = None
 datas = []
 datas += collect_data_files('ultralytics')
 datas += collect_data_files('numpy')
+datas += collect_data_files('PIL')
 
 binaries = []
 # Collect NVIDIA CUDA runtime DLLs
@@ -57,11 +58,13 @@ for pkg in nvidia_packages:
         print(f'  Warning: {pkg} not installed, skipping')
 
 binaries += collect_dynamic_libs('torch')
+binaries += collect_dynamic_libs('PIL')
 
 hiddenimports = []
 hiddenimports += collect_submodules('ultralytics')
 hiddenimports += collect_submodules('torch')
 hiddenimports += collect_submodules('numpy')
+hiddenimports += collect_submodules('PIL')
 hiddenimports += [
     'cv2',
     'tqdm',
@@ -79,7 +82,6 @@ a = Analysis(
     excludes=[
         'matplotlib',
         'tkinter',
-        'PIL',
         'IPython',
         'jupyter',
         'torchaudio',
@@ -185,6 +187,10 @@ def install_dependencies():
 
     print("Installing tqdm...")
     if not run_command([pip, "install", "tqdm>=4.65.0"]):
+        return False
+
+    print("Installing Pillow (PIL)...")
+    if not run_command([pip, "install", "Pillow>=10.0.0"]):
         return False
 
     print("Installing PyInstaller...")

@@ -32,6 +32,7 @@ datas = []
 datas += collect_data_files('audio_separator')
 datas += collect_data_files('onnxruntime')
 datas += collect_data_files('numpy')
+datas += collect_data_files('scipy')
 
 # Collect NVIDIA CUDA runtime DLLs from nvidia-* pip packages
 # These are required by onnxruntime_providers_cuda.dll at runtime
@@ -68,6 +69,9 @@ binaries += collect_dynamic_libs('torch')
 # Collect torchvision DLLs (required by onnx2torch -> node_converters -> nms)
 binaries += collect_dynamic_libs('torchvision')
 
+# Collect SciPy compiled extensions (needed for audio-separator internals)
+binaries += collect_dynamic_libs('scipy')
+
 # Collect all submodules
 hiddenimports = []
 hiddenimports += collect_submodules('audio_separator')
@@ -76,8 +80,8 @@ hiddenimports += collect_submodules('torch')
 hiddenimports += collect_submodules('torchvision')
 hiddenimports += collect_submodules('onnx2torch')
 hiddenimports += collect_submodules('numpy')
+hiddenimports += collect_submodules('scipy')
 hiddenimports += [
-    'scipy',
     'librosa',
     'soundfile',
     'pydub',
