@@ -7,7 +7,7 @@ import {
   Cpu,
   HardDrive,
   Check,
-  RefreshCw,
+
   Trash2,
   Database,
   FolderOpen,
@@ -48,7 +48,6 @@ const Settings: React.FC = () => {
   } = useSystemStore();
   const {
     models,
-    loading: modelsLoading,
     loadAll: loadModels,
     isModelDownloaded,
     isModelDownloading,
@@ -63,13 +62,14 @@ const Settings: React.FC = () => {
   const [localConfig, setLocalConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const [loadingStorage, setLoadingStorage] = useState(false);
+  const [, setLoadingStorage] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [resettingDb, setResettingDb] = useState(false);
   const [resettingConfig, setResettingConfig] = useState(false);
   const [showResetDbDialog, setShowResetDbDialog] = useState(false);
   const [showResetConfigDialog, setShowResetConfigDialog] = useState(false);
   const [showMatchingSettings, setShowMatchingSettings] = useState(false);
+  const [showDetectionSettings, setShowDetectionSettings] = useState(false);
 
   const loadStorageInfo = async () => {
     setLoadingStorage(true);
@@ -127,6 +127,11 @@ const Settings: React.FC = () => {
         matching: {
           ...config.matching,
           min_confidence: Math.round(config.matching.min_confidence * 10) / 10,
+        },
+        // 确保 detection 配置存在
+        detection: {
+          ...config.detection,
+          confidence_threshold: Math.round(config.detection.confidence_threshold * 10) / 10,
         },
       };
       setLocalConfig(fixedConfig);
@@ -340,19 +345,10 @@ const Settings: React.FC = () => {
                   <label className="block text-sm font-medium text-[hsl(var(--text-secondary))]">
                     {t('settings.separation.model')}
                   </label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={loadModels}
-                    loading={modelsLoading}
-                  >
-                    <RefreshCw className="w-4 h-4 mr-1" />
-                    {t('common.refresh')}
-                  </Button>
                 </div>
 
                 <div className="space-y-2">
-                  {models.map((model) => {
+                  {models.filter((m) => m.architecture === 'mdxnet').map((model) => {
                     const downloaded = isModelDownloaded(model.id);
                     const downloading = isModelDownloading(model.id);
                     const progress = downloadProgress.get(model.id) || 0;
@@ -548,6 +544,204 @@ const Settings: React.FC = () => {
           </section>
         )}
 
+        {/* 人物检测设置 */}
+        {localConfig && (
+          <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">{t('settings.detection.title')}</h2>
+
+            <div className="space-y-6">
+              {/* 检测模型管理 */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-[hsl(var(--text-secondary))]">
+                    {t('settings.detection.model')}
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  {models.filter((m) => m.architecture === 'yolo').map((model) => {
+                    const downloaded = isModelDownloaded(model.id);
+                    const downloading = isModelDownloading(model.id);
+                    const progress = downloadProgress.get(model.id) || 0;
+                    const canUseGpu = accelerationOptions?.onnx_gpu_available;
+
+                    return (
+                      <div
+                        key={model.id}
+                        className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] transition-all"
+                      >
+                        <div
+                          className="p-4 cursor-pointer"
+                          onClick={() => setShowDetectionSettings(!showDetectionSettings)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-[hsl(var(--foreground))]">
+                                  {model.name}
+                                </span>
+                                <span className="text-xs px-2 py-0.5 rounded bg-[hsl(var(--background))] text-[hsl(var(--text-muted))]">
+                                  {model.architecture.toUpperCase()}
+                                </span>
+                                {canUseGpu ? (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-500">
+                                    GPU
+                                  </span>
+                                ) : (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">
+                                    CPU
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-[hsl(var(--text-muted))] mt-1">
+                                {t(`model.${model.id}.description`, model.description)}
+                              </p>
+                            </div>
+                            <div className="ml-4 flex flex-col items-end gap-2">
+                              {downloaded ? (
+                                <span className="flex items-center gap-1 text-xs text-green-500">
+                                  <Check className="w-4 h-4" />
+                                  {t('settings.separation.downloaded')}
+                                </span>
+                              ) : downloading ? (
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="flex items-center gap-1 text-xs text-blue-500">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    {t('settings.separation.downloading')}
+                                  </span>
+                                  <div className="w-24">
+                                    <Progress value={progress} />
+                                  </div>
+                                  <span className="text-xs text-[hsl(var(--text-muted))]">
+                                    {progress.toFixed(0)}%
+                                  </span>
+                                </div>
+                              ) : (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadModel(model.id);
+                                  }}
+                                >
+                                  <Download className="w-4 h-4 mr-1" />
+                                  {t('common.download')}
+                                </Button>
+                              )}
+                              <ChevronDown
+                                className={`w-4 h-4 text-[hsl(var(--text-muted))] transition-transform ${showDetectionSettings ? 'rotate-180' : ''}`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {showDetectionSettings && (
+                          <div className="px-4 pb-4 border-t border-[hsl(var(--border))]">
+                            <div className="mt-3 mb-3">
+                              <h3 className="text-sm font-medium text-[hsl(var(--text-secondary))]">
+                                {t('settings.detection.title')}
+                              </h3>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.detection.confidenceThreshold')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={0.1}
+                                  max={1}
+                                  step={0.1}
+                                  value={localConfig.detection.confidence_threshold}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val)) {
+                                      updateLocalConfig('detection.confidence_threshold', Math.round(val * 10) / 10);
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    let val = parseFloat(e.target.value);
+                                    if (isNaN(val)) val = 0.5;
+                                    val = Math.max(0.1, Math.min(1, Math.round(val * 10) / 10));
+                                    updateLocalConfig('detection.confidence_threshold', val);
+                                  }}
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.detection.confidenceThresholdDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.detection.frameInterval')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={30}
+                                  step={1}
+                                  value={localConfig.detection.frame_interval}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'detection.frame_interval',
+                                      parseInt(e.target.value) || 5
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.detection.frameIntervalDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.detection.minSegmentDuration')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={0.5}
+                                  max={10}
+                                  step={0.5}
+                                  value={localConfig.detection.min_segment_duration}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'detection.min_segment_duration',
+                                      parseFloat(e.target.value) || 1.0
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.detection.minSegmentDurationDesc')}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-2">
+                                  {t('settings.detection.maxGapDuration')}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={0.5}
+                                  max={10}
+                                  step={0.5}
+                                  value={localConfig.detection.max_gap_duration}
+                                  onChange={(e) =>
+                                    updateLocalConfig(
+                                      'detection.max_gap_duration',
+                                      parseFloat(e.target.value) || 2.0
+                                    )
+                                  }
+                                />
+                                <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{t('settings.detection.maxGapDurationDesc')}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="text-xs text-[hsl(var(--text-muted))] mt-3">
+                  {t('settings.detection.modelHint')}
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* 日志设置 */}
         {localConfig && (
           <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
@@ -600,15 +794,6 @@ const Settings: React.FC = () => {
         <section className="bg-[hsl(var(--card-bg))] rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">{t('settings.storage.title')}</h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={loadStorageInfo}
-              loading={loadingStorage}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              {t('common.refresh')}
-            </Button>
           </div>
 
           {storageInfo && (

@@ -127,6 +127,30 @@ impl Default for WindowState {
     }
 }
 
+/// 人物检测配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectionConfig {
+    /// 置信度阈值 (0.0 - 1.0)
+    pub confidence_threshold: f32,
+    /// 抽帧间隔（每 N 帧检测一次）
+    pub frame_interval: u32,
+    /// 最小片段时长 (秒)
+    pub min_segment_duration: f32,
+    /// 最大合并间隔 (秒)
+    pub max_gap_duration: f32,
+}
+
+impl Default for DetectionConfig {
+    fn default() -> Self {
+        Self {
+            confidence_threshold: 0.5,
+            frame_interval: 5,
+            min_segment_duration: 1.0,
+            max_gap_duration: 2.0,
+        }
+    }
+}
+
 /// 匹配配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchConfig {
@@ -168,6 +192,9 @@ pub struct AppConfig {
     pub separation: SeparationConfig,
     /// 匹配配置
     pub matching: MatchConfig,
+    /// 人物检测配置
+    #[serde(default)]
+    pub detection: DetectionConfig,
     /// 窗口状态
     #[serde(default)]
     pub window_state: WindowState,
@@ -182,6 +209,7 @@ impl Default for AppConfig {
             detected_gpu: GpuType::None,
             separation: SeparationConfig::default(),
             matching: MatchConfig::default(),
+            detection: DetectionConfig::default(),
             window_state: WindowState::default(),
             log_level: LogLevel::default(),
         }

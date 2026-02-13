@@ -1,8 +1,14 @@
 // 模型管理模块
+//
+// 统一管理所有 AI 模型的注册、路径解析和下载状态检查。
+// 分为两类模型，各自独立管理目录和环境变量：
+// - 人声分离模型 (MDX-Net ONNX): 环境变量 MUSICCUT_MODELS_DIR，默认 models/audio-separator
+// - 人物检测模型 (YOLO PyTorch): 环境变量 MUSICCUT_DETECTION_MODELS_DIR，默认 models/person-detector
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tracing::debug;
 
 const MODELS_DIR_ENV: &str = "MUSICCUT_MODELS_DIR";
 
@@ -12,6 +18,8 @@ const MODELS_DIR_ENV: &str = "MUSICCUT_MODELS_DIR";
 pub enum ModelArchitecture {
     /// MDX-Net (ONNX 格式)
     MdxNet,
+    /// YOLO (PyTorch 格式)
+    Yolo,
 }
 
 /// 模型信息
@@ -94,6 +102,7 @@ fn get_project_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+/// 确保模型根目录存在，不存在则自动创建
 pub fn ensure_models_root_dir() -> std::io::Result<PathBuf> {
     let models_root = get_project_root().join("models");
     fs::create_dir_all(&models_root)?;
@@ -101,15 +110,20 @@ pub fn ensure_models_root_dir() -> std::io::Result<PathBuf> {
 }
 
 /// 获取 audio-separator 模型根目录
-/// 优先使用环境变量 MUSICCUT_MODELS_DIR（打包时指向资源目录）
-/// 未设置则回退到项目目录下的 models/audio-separator
+///
+/// 优先使用环境变量 MUSICCUT_MODELS_DIR（打包时指向资源目录），
+/// 未设置则回退到项目目录下的 models/audio-separator。
 pub fn get_models_cache_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os(MODELS_DIR_ENV) {
         if !dir.is_empty() {
-            return PathBuf::from(dir);
+            let path = PathBuf::from(dir);
+            debug!("[MODELS] 分离模型目录（环境变量）: {}", path.display());
+            return path;
         }
     }
-    get_project_root().join("models").join("audio-separator")
+    let path = get_project_root().join("models").join("audio-separator");
+    debug!("[MODELS] 分离模型目录（默认）: {}", path.display());
+    path
 }
 
 pub fn get_model_dir(model: &ModelInfo) -> PathBuf {
@@ -126,11 +140,12 @@ pub fn set_models_cache_dir(path: PathBuf) {
     std::env::set_var(MODELS_DIR_ENV, &path);
 }
 
-/// 检查模型是否已下载
+/// 检查分离模型是否已下载
 pub fn check_model_downloaded(model: &ModelInfo) -> ModelStatus {
     let model_dir = get_model_dir(model);
     let model_path = model_dir.join(&model.filename);
     let exists = model_path.exists();
+    debug!("[MODELS] 分离模型状态: id={}, 文件={}, 已下载={}", model.id, model_path.display(), exists);
     let local_path = if exists {
         Some(model_path.to_string_lossy().to_string())
     } else {
@@ -149,5 +164,91 @@ pub fn get_all_models_status() -> Vec<ModelStatus> {
     get_available_models()
         .iter()
         .map(|m| check_model_downloaded(m))
+        .collect()
+}
+
+// ==================== 人物检测模型 ====================
+// 检测模型使用 YOLO 架构（PyTorch .pt 格式），与人声分离的 MDX-Net（ONNX）独立管理。
+// 模型目录优先使用环境变量 MUSICCUT_DETECTION_MODELS_DIR，未设置则回退到 models/person-detector。
+
+const DETECTION_MODELS_DIR_ENV: &str = "MUSICCUT_DETECTION_MODELS_DIR";
+
+/// 获取所有可用的检测模型列表
+pub fn get_detection_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "yolov11s".to_string(),
+            name: "YOLOv11s".to_string(),
+            architecture: ModelArchitecture::Yolo,
+            filename: "yolo11s.pt".to_string(),
+            description: "轻量级人物检测模型".to_string(),
+            stems: 0,
+            speed_rating: 4,
+            quality_rating: 3,
+            file_size: 18_500_000, // ~18.5MB
+        },
+    ]
+}
+
+/// 根据 ID 获取检测模型信息
+pub fn get_detection_model_by_id(model_id: &str) -> Option<ModelInfo> {
+    get_detection_models().into_iter().find(|m| m.id == model_id)
+}
+
+/// 获取检测模型根目录
+///
+/// 优先使用环境变量 MUSICCUT_DETECTION_MODELS_DIR（打包时指向资源目录），
+/// 未设置则回退到项目目录下的 models/person-detector。
+pub fn get_detection_models_cache_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os(DETECTION_MODELS_DIR_ENV) {
+        if !dir.is_empty() {
+            let path = PathBuf::from(dir);
+            debug!("[MODELS] 检测模型目录（环境变量）: {}", path.display());
+            return path;
+        }
+    }
+    let path = get_project_root().join("models").join("person-detector");
+    debug!("[MODELS] 检测模型目录（默认）: {}", path.display());
+    path
+}
+
+/// 获取检测模型目录
+pub fn get_detection_model_dir(model: &ModelInfo) -> PathBuf {
+    get_detection_models_cache_dir().join(&model.id)
+}
+
+/// 确保检测模型目录存在
+pub fn ensure_detection_model_dir(model: &ModelInfo) -> std::io::Result<PathBuf> {
+    let model_dir = get_detection_model_dir(model);
+    fs::create_dir_all(&model_dir)?;
+    Ok(model_dir)
+}
+
+/// 检查检测模型是否已下载
+///
+/// 检查模型目录下是否存在对应的模型文件，返回下载状态和本地路径。
+pub fn check_detection_model_downloaded(model: &ModelInfo) -> ModelStatus {
+    let model_dir = get_detection_model_dir(model);
+    let model_path = model_dir.join(&model.filename);
+    let exists = model_path.exists();
+    debug!("[MODELS] 检测模型状态: id={}, 文件={}, 已下载={}", model.id, model_path.display(), exists);
+    let local_path = if exists {
+        Some(model_path.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    ModelStatus {
+        model_id: model.id.clone(),
+        downloaded: exists,
+        local_path,
+    }
+}
+
+/// 获取所有检测模型的状态
+pub fn get_all_detection_models_status() -> Vec<ModelStatus> {
+    get_detection_models()
+        .iter()
+        .map(|m| check_detection_model_downloaded(m))
         .collect()
 }

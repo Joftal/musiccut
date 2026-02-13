@@ -44,6 +44,7 @@ tools/venv/
 
 # AI models (auto-downloaded)
 models/audio-separator/
+models/person-detector/
 
 # Packaged resources
 src-tauri/resources/audio-separator/

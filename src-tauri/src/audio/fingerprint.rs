@@ -1,12 +1,18 @@
 // 音频指纹模块
+//
+// 使用 fpcalc (Chromaprint) 提取音频指纹，通过汉明距离比较指纹相似度。
+// 用于音乐匹配流程中的滑动窗口片段与音乐库指纹比对。
 
 use crate::error::{AppError, AppResult};
 use crate::utils::{resolve_tool_path, hidden_command};
 use sha2::{Sha256, Digest};
+use tracing::{debug, error};
 
-/// 从文件提取指纹
+/// 从音频文件提取指纹
+///
+/// 调用 fpcalc 以 raw JSON 模式提取 Chromaprint 指纹，返回 (指纹字节数据, 音频时长)。
 pub fn extract_fingerprint_from_file(audio_path: &str) -> AppResult<(Vec<u8>, f64)> {
-    // 使用 fpcalc 提取指纹
+    debug!("[FINGERPRINT] 提取指纹: {}", audio_path);
     let fpcalc_path = resolve_tool_path("fpcalc");
     let output = hidden_command(&fpcalc_path)
         .args(["-raw", "-json", audio_path])
@@ -15,6 +21,7 @@ pub fn extract_fingerprint_from_file(audio_path: &str) -> AppResult<(Vec<u8>, f6
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("[FINGERPRINT] fpcalc 错误: {}", stderr);
         return Err(AppError::Fingerprint(format!("fpcalc 错误: {}", stderr)));
     }
 
@@ -37,10 +44,11 @@ pub fn extract_fingerprint_from_file(audio_path: &str) -> AppResult<(Vec<u8>, f6
         .flat_map(|v| (v as i32).to_le_bytes())
         .collect();
 
+    debug!("[FINGERPRINT] 提取成功: 时长={:.1}s, 指纹大小={}bytes", duration, fingerprint_data.len());
     Ok((fingerprint_data, duration))
 }
 
-/// 计算指纹哈希
+/// 计算指纹的 SHA256 哈希值（用于快速去重比对）
 pub fn compute_fingerprint_hash(fingerprint: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(fingerprint);
@@ -48,7 +56,9 @@ pub fn compute_fingerprint_hash(fingerprint: &[u8]) -> String {
     hex::encode(result)
 }
 
-/// 比较两个指纹的相似度
+/// 比较两个指纹的相似度（汉明距离）
+///
+/// 将指纹字节还原为 i32 数组，逐对异或后统计匹配位数，返回 0.0-1.0 的相似度。
 pub fn compare_fingerprints(fp1: &[u8], fp2: &[u8]) -> f64 {
     if fp1.is_empty() || fp2.is_empty() {
         return 0.0;

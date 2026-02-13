@@ -1,7 +1,17 @@
 // FFmpeg 封装模块
+//
+// 封装所有 FFmpeg CLI 调用，提供视频/音频处理功能：
+// - get_video_info: 获取视频元信息（时长、分辨率、编码格式等）
+// - extract_audio_track: 从视频提取音频轨道
+// - extract_audio_segment: 提取指定时间范围的音频片段（用于滑动窗口匹配）
+// - cut_video_segments / export_video: 按片段剪辑/导出视频
+// - extract_thumbnail: 提取视频缩略图
+// - generate_preview_video: 生成浏览器兼容的预览视频
+//
+// 所有日志统一使用 [FFMPEG] 前缀。
 
 use crate::error::{AppError, AppResult};
-use crate::utils::{VideoInfo, Segment, SegmentStatus, resolve_tool_path, hidden_command};
+use crate::utils::{VideoInfo, Segment, SegmentStatus, SegmentType, resolve_tool_path, hidden_command};
 use tracing::{error, info};
 use std::process::Stdio;
 use std::io::{BufRead, BufReader, Write};
@@ -817,7 +827,8 @@ pub fn extract_thumbnail(
     Ok(())
 }
 
-/// 剪辑视频片段（智能模式：优先无损剪辑，失败回退重编码）
+/// 剪辑视频片段
+/// prefer_lossless: true 优先无损剪辑（快速），false 强制重编码（精确）
 pub fn cut_video_segments(
     input_path: &str,
     output_path: &str,
@@ -826,9 +837,18 @@ pub fn cut_video_segments(
     progress_callback: Option<ProgressCallback>,
     cancel_flag: Arc<AtomicBool>,
     project_id: &str,
+    prefer_lossless: bool,
 ) -> AppResult<()> {
     let video_info = get_video_info(input_path)?;
     let total_duration = video_info.duration;
+
+    info!("[CUT] === 剪辑片段统计 === keep_matched={}", keep_matched);
+    let detected_count = segments.iter().filter(|s| s.status != SegmentStatus::Removed).count();
+    let removed_count = segments.iter().filter(|s| s.status == SegmentStatus::Removed).count();
+    let music_count = segments.iter().filter(|s| s.segment_type == SegmentType::Music).count();
+    let person_count = segments.iter().filter(|s| s.segment_type == SegmentType::Person).count();
+    info!("[CUT] 传入片段: 总计={}, detected={}, removed={}, music={}, person={}, 视频总时长={:.2}s",
+        segments.len(), detected_count, removed_count, music_count, person_count, total_duration);
 
     // 计算需要保留的时间段
     let keep_segments = if keep_matched {
@@ -843,12 +863,20 @@ pub fn cut_video_segments(
 
     log_segment_filter_stats(segments, keep_segments.len());
 
+    // 记录最终保留的时间段
+    let cut_total_duration: f64 = keep_segments.iter().map(|(s, e)| e - s).sum();
+    info!("[CUT] 最终保留 {} 个片段, 总时长 {:.2}s / 视频总时长 {:.2}s ({:.1}%)",
+        keep_segments.len(), cut_total_duration, total_duration, cut_total_duration / total_duration * 100.0);
+    for (i, (start, end)) in keep_segments.iter().enumerate() {
+        info!("[CUT]   保留片段[{}]: {:.2}s - {:.2}s (时长 {:.2}s)", i, start, end, end - start);
+    }
+
     if keep_segments.is_empty() {
         return Err(AppError::Video("没有需要保留的片段".to_string()));
     }
 
-    // 使用智能分段合并（优先无损，失败回退重编码）
-    smart_concat_segments(input_path, output_path, &keep_segments, progress_callback, cancel_flag, project_id, true)
+    // 使用智能分段合并（根据 prefer_lossless 决定模式）
+    smart_concat_segments(input_path, output_path, &keep_segments, progress_callback, cancel_flag, project_id, prefer_lossless)
 }
 
 /// 计算反向片段（移除匹配片段后的剩余部分）
@@ -922,6 +950,28 @@ fn filter_valid_segments_with_ref<'a>(
     segments: &'a [Segment],
     total_duration: f64,
 ) -> Vec<(f64, f64, &'a Segment)> {
+    // 记录过滤前每个片段的详细信息
+    info!("[FILTER] === 开始筛选有效片段 === 传入 {} 个片段, 视频总时长 {:.2}s", segments.len(), total_duration);
+    for (i, s) in segments.iter().enumerate() {
+        info!(
+            "[FILTER]   输入片段[{}]: id={}, {:.2}s - {:.2}s (时长 {:.2}s), status={:?}, type={:?}",
+            i, s.id, s.start_time, s.end_time, s.end_time - s.start_time, s.status, s.segment_type
+        );
+    }
+
+    // 记录被过滤掉的片段及原因
+    for (i, s) in segments.iter().enumerate() {
+        if s.status == SegmentStatus::Removed {
+            info!("[FILTER]   ✗ 片段[{}] 被过滤: status=Removed, id={}", i, s.id);
+        } else {
+            let start = s.start_time.max(0.0);
+            let end = s.end_time.min(total_duration);
+            if start >= end {
+                info!("[FILTER]   ✗ 片段[{}] 被过滤: 修正后无效 (start={:.2} >= end={:.2}), id={}", i, start, end, s.id);
+            }
+        }
+    }
+
     let mut valid_segments: Vec<(f64, f64, &'a Segment)> = segments
         .iter()
         .filter(|s| s.status != SegmentStatus::Removed)
@@ -935,17 +985,29 @@ fn filter_valid_segments_with_ref<'a>(
 
     // 按开始时间排序
     valid_segments.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // 记录筛选结果
+    let valid_total_duration: f64 = valid_segments.iter().map(|(s, e, _)| e - s).sum();
+    info!("[FILTER] 筛选结果: {} -> {} 个有效片段, 有效总时长 {:.2}s", segments.len(), valid_segments.len(), valid_total_duration);
+    for (i, (start, end, seg)) in valid_segments.iter().enumerate() {
+        info!(
+            "[FILTER]   ✓ 有效片段[{}]: {:.2}s - {:.2}s (时长 {:.2}s), type={:?}, id={}",
+            i, start, end, end - start, seg.segment_type, seg.id
+        );
+    }
+
     valid_segments
 }
 
 /// 记录片段筛选日志（公共函数，避免代码重复）
 fn log_segment_filter_stats(segments: &[Segment], valid_count: usize) {
-    let filtered_count = segments.iter().filter(|s| s.status != SegmentStatus::Removed).count();
+    let not_removed = segments.iter().filter(|s| s.status != SegmentStatus::Removed).count();
+    let removed = segments.iter().filter(|s| s.status == SegmentStatus::Removed).count();
+    let music = segments.iter().filter(|s| s.segment_type == SegmentType::Music && s.status != SegmentStatus::Removed).count();
+    let person = segments.iter().filter(|s| s.segment_type == SegmentType::Person && s.status != SegmentStatus::Removed).count();
     info!(
-        "[FFMPEG] 片段筛选: 总计 {} 个，未移除 {} 个，有效 {} 个",
-        segments.len(),
-        filtered_count,
-        valid_count
+        "[FFMPEG] 片段筛选: 总计 {} 个, 未移除 {} 个 (music={}, person={}), 已移除 {} 个, 最终有效 {} 个",
+        segments.len(), not_removed, music, person, removed, valid_count
     );
 }
 
@@ -1151,19 +1213,6 @@ pub(crate) fn smart_concat_segments(
     Ok(())
 }
 
-/// 导出视频（智能模式：优先无损剪辑，失败回退重编码）
-pub fn export_video(
-    input_path: &str,
-    output_path: &str,
-    segments: &[Segment],
-    progress_callback: Option<ProgressCallback>,
-    cancel_flag: Arc<AtomicBool>,
-    project_id: &str,
-) -> AppResult<()> {
-    // 默认使用无损模式
-    export_video_with_mode(input_path, output_path, segments, progress_callback, cancel_flag, project_id, true)
-}
-
 /// 导出视频（可选模式）
 /// prefer_lossless: true 优先无损剪辑（快速），false 强制重编码（精确）
 pub fn export_video_with_mode(
@@ -1190,6 +1239,15 @@ pub fn export_video_with_mode(
     let video_info = get_video_info(input_path)?;
     let total_duration = video_info.duration;
 
+    // 详细记录传入的片段信息
+    info!("[FFMPEG] 传入片段总数: {}, 视频总时长: {:.2}s", segments.len(), total_duration);
+    for (i, s) in segments.iter().enumerate() {
+        info!(
+            "[FFMPEG]   片段[{}]: {:.2}s - {:.2}s, status={:?}, type={:?}, id={}",
+            i, s.start_time, s.end_time, s.status, s.segment_type, s.id
+        );
+    }
+
     // 使用公共函数筛选有效片段（已排序）
     let keep_segments = filter_valid_segments(segments, total_duration);
 
@@ -1201,6 +1259,13 @@ pub fn export_video_with_mode(
 
     // 合并重叠片段，避免重复内容
     let merged_segments = merge_overlapping_segments(&keep_segments);
+
+    // 记录最终导出的片段时间范围
+    for (i, (start, end)) in merged_segments.iter().enumerate() {
+        info!("[FFMPEG]   导出片段[{}]: {:.2}s - {:.2}s (时长 {:.2}s)", i, start, end, end - start);
+    }
+    let total_export_duration: f64 = merged_segments.iter().map(|(s, e)| e - s).sum();
+    info!("[FFMPEG] 导出总时长: {:.2}s / 视频总时长: {:.2}s ({:.1}%)", total_export_duration, total_duration, total_export_duration / total_duration * 100.0);
     if merged_segments.len() < keep_segments.len() {
         info!(
             "[FFMPEG] 合并重叠片段: {} -> {} 个",
@@ -1222,19 +1287,6 @@ pub fn export_video_with_mode(
     }
 
     result
-}
-
-/// 分别导出视频片段（每个片段单独导出为独立文件，智能模式，并行处理）
-pub fn export_video_separately(
-    input_path: &str,
-    output_dir: &str,
-    segments: &[Segment],
-    progress_callback: Option<ProgressCallback>,
-    cancel_flag: Arc<AtomicBool>,
-    project_id: &str,
-) -> AppResult<Vec<String>> {
-    // 默认使用无损模式
-    export_video_separately_with_mode(input_path, output_dir, segments, progress_callback, cancel_flag, project_id, true)
 }
 
 /// 分别导出视频片段（可选模式）
@@ -1261,11 +1313,25 @@ pub fn export_video_separately_with_mode(
     let video_info = get_video_info(input_path)?;
     let total_duration = video_info.duration;
 
+    // 详细记录传入的片段信息
+    info!("[FFMPEG-SEP] 传入片段总数: {}, 视频总时长: {:.2}s", segments.len(), total_duration);
+    for (i, s) in segments.iter().enumerate() {
+        info!(
+            "[FFMPEG-SEP]   片段[{}]: {:.2}s - {:.2}s, status={:?}, type={:?}, id={}",
+            i, s.start_time, s.end_time, s.status, s.segment_type, s.id
+        );
+    }
+
     // 使用公共函数筛选有效片段（已排序）
     // 注意：分段导出不合并重叠片段，每个片段单独导出
     let export_segments = filter_valid_segments_with_ref(segments, total_duration);
 
     log_segment_filter_stats(segments, export_segments.len());
+
+    // 记录筛选后的导出片段
+    for (i, (start, end, seg)) in export_segments.iter().enumerate() {
+        info!("[FFMPEG-SEP]   导出片段[{}]: {:.2}s - {:.2}s, type={:?}", i, start, end, seg.segment_type);
+    }
 
     if export_segments.is_empty() {
         return Err(AppError::Video("没有可导出的片段".to_string()));
@@ -1331,12 +1397,17 @@ pub fn export_video_separately_with_mode(
         .iter()
         .enumerate()
         .map(|(i, (start_time, end_time, segment))| {
-            // 处理空字符串和 None 的情况
-            let music_name = segment.music_title
-                .as_deref()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or("未知音乐");
-            let safe_music_name: String = music_name
+            // 根据片段类型生成名称：音乐片段用歌曲名，人物片段用"人物检测"
+            let segment_name = if segment.segment_type == crate::utils::SegmentType::Person {
+                "人物检测".to_string()
+            } else {
+                segment.music_title
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("未知音乐")
+                    .to_string()
+            };
+            let safe_segment_name: String = segment_name
                 .chars()
                 .map(|c| match c {
                     '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
@@ -1344,13 +1415,13 @@ pub fn export_video_separately_with_mode(
                 })
                 .collect();
             // 限制文件名长度（Windows 限制 255 字符，预留扩展名和路径空间）
-            let safe_music_name: String = safe_music_name.chars().take(50).collect();
-            // 文件名格式：源文件名_序号_音乐名_开始时间_结束时间.扩展名
+            let safe_segment_name: String = safe_segment_name.chars().take(50).collect();
+            // 文件名格式：源文件名_序号_片段名_开始时间_结束时间.扩展名
             let output_filename = format!(
                 "{}_{:03}_{}_{}_{}.{}",
                 safe_source_name,
                 i + 1,
-                safe_music_name,
+                safe_segment_name,
                 format_time(*start_time),
                 format_time(*end_time),
                 source_ext
@@ -1465,20 +1536,6 @@ pub fn export_video_separately_with_mode(
 
     info!("[FFMPEG] 并行导出完成，共 {} 个文件", output_files.len());
     Ok(output_files)
-}
-
-/// 导出自定义剪辑片段（智能模式：优先无损剪辑，失败回退重编码）
-pub fn export_custom_segment(
-    input_path: &str,
-    output_path: &str,
-    start_time: f64,
-    end_time: f64,
-    progress_callback: Option<ProgressCallback>,
-    cancel_flag: Arc<AtomicBool>,
-    project_id: &str,
-) -> AppResult<()> {
-    // 默认使用无损模式
-    export_custom_segment_with_mode(input_path, output_path, start_time, end_time, progress_callback, cancel_flag, project_id, true)
 }
 
 /// 导出自定义剪辑片段（可选模式）

@@ -43,7 +43,6 @@
     "selectFolder": "选择文件夹",
     "selectFile": "选择文件",
     "saveFile": "保存文件",
-    "selectDirectory": "选择目录",
     "pathTooLong": "名称或路径过长（{{length}}/{{max}}字符），请选择更短的路径或重命名文件",
     "pathTooLongSeparate": "名称或路径过长（{{length}}/{{max}}字符），生成的文件名可能超出系统限制，请选择更短的路径或重命名文件",
     "fileNameTooLong": "文件名较长（{{length}}字符），导出时可能因路径过长而失败，建议重命名后再导入"
@@ -63,6 +62,7 @@
     "title": "项目",
     "subtitle": "管理你的视频剪辑项目",
     "newProject": "新建项目",
+    "deleteAll": "删除所有",
     "importFolder": "导入文件夹",
     "searchPlaceholder": "搜索项目...",
     "emptyTitle": "还没有项目",
@@ -76,7 +76,10 @@
       "selectVideo": "选择视频文件",
       "deleteProjectTitle": "删除项目",
       "deleteWarning": "警告：此操作不可撤销！",
-      "deleteConfirm": "确定要删除这个项目吗？删除后将无法恢复。"
+      "deleteConfirm": "确定要删除这个项目吗？删除后将无法恢复。",
+      "deleteAllTitle": "删除所有项目",
+      "deleteAllWarning": "警告：此操作将删除所有项目及其关联数据，不可撤销！",
+      "deleteAllConfirm": "确定要删除全部 {{count}} 个项目吗？"
     },
     "toast": {
       "selectVideo": "请选择视频文件",
@@ -84,6 +87,8 @@
       "skipExisting": "成功导入 0 个项目，跳过 1 个已存在的项目",
       "deleted": "项目已删除",
       "deleteFailed": "删除失败",
+      "allDeleted": "已删除所有项目",
+      "deleteAllFailed": "删除所有项目失败",
       "noVideoInFolder": "该文件夹中没有视频文件",
       "longFileName": "{{count}} 个文件名较长",
       "longFileNameDesc": "这些项目导出时可能因路径过长而失败，建议重命名后再导入",
@@ -105,6 +110,7 @@
     "subtitle": "管理音乐指纹库，共 {{count}} 首",
     "importFolder": "导入文件夹",
     "importFiles": "导入文件",
+    "deleteAll": "删除所有",
     "searchPlaceholder": "搜索音乐...",
     "emptyTitle": "音乐库为空",
     "emptySubtitle": "导入音乐以创建指纹库",
@@ -121,7 +127,10 @@
     "dialog": {
       "deleteMusicTitle": "删除音乐",
       "deleteWarning": "警告：此操作不可撤销！",
-      "deleteConfirm": "确定要删除这首音乐吗？删除后将无法恢复。"
+      "deleteConfirm": "确定要删除这首音乐吗？删除后将无法恢复。",
+      "deleteAllTitle": "删除所有音乐指纹",
+      "deleteAllWarning": "警告：此操作将删除所有音乐指纹数据，不可撤销！",
+      "deleteAllConfirm": "确定要删除全部 {{count}} 条音乐指纹吗？"
     },
     "toast": {
       "importSuccess": "成功导入 {{imported}} 个音频文件",
@@ -129,16 +138,19 @@
       "importErrors": "{{errors}} 个文件导入失败",
       "importFailed": "导入失败",
       "deleted": "已删除",
-      "deleteFailed": "删除失败"
+      "deleteFailed": "删除失败",
+      "allDeleted": "已删除所有音乐指纹",
+      "deleteAllFailed": "删除所有音乐指纹失败"
     }
   },
   "editor": {
     "selectProject": "请从项目列表选择或创建项目",
     "backToProjects": "返回项目列表",
-    "downloadModelFirst": "请先下载模型",
     "allMusic": "全部音乐",
     "songsSelected": "{{count}} 首",
     "startRecognition": "开始识别",
+    "startDetection": "人物检测",
+    "cancelDetection": "取消检测",
     "gpuAcceleration": "GPU 加速",
     "cpuOnly": "仅 CPU",
     "segments": {
@@ -146,7 +158,9 @@
       "count": "{{count}} 个片段",
       "empty": "暂无检测到的片段",
       "emptyHint": "点击\"开始识别\"进行检测",
-      "unknownMusic": "未知音乐"
+      "unknownMusic": "未知音乐",
+      "musicSegment": "音乐片段",
+      "personSegment": "人物片段"
     },
     "timeline": {
       "normalMode": "正常模式",
@@ -175,7 +189,10 @@
       "selectSavePath": "选择保存位置",
       "selectOutputDir": "选择输出目录",
       "exportHintMerged": "将 {{count}} 个片段合并导出为一个文件，优先无损剪辑，必要时自动重编码。",
-      "exportHintSeparate": "将 {{count}} 个片段分别导出为独立文件，优先无损剪辑，必要时自动重编码。"
+      "exportHintSeparate": "将 {{count}} 个片段分别导出为独立文件，优先无损剪辑，必要时自动重编码。",
+      "forceReencode": "强制重编码",
+      "forceReencodeDesc": "开启后精确切割片段边界，速度较慢但导出内容更准确。",
+      "reencodeHint": "检测到 {{count}} 处短间隙，无损模式可能包含间隙内容，建议开启重编码。"
     },
     "toast": {
       "noModel": "无可用模型",
@@ -204,7 +221,12 @@
       "previewFailedDesc": "视频可能无法正常播放，但不影响分析和导出功能",
       "customClipExportCancelled": "{{name}} 自定义剪辑导出已取消",
       "rangeTooShort": "时间范围太短",
-      "rangeTooShortDesc": "请选择至少 0.1 秒的时间范围"
+      "rangeTooShortDesc": "请选择至少 0.1 秒的时间范围",
+      "detectionComplete": "{{name}} 人物检测完成",
+      "detectionSegments": "检测到 {{count}} 个人物片段",
+      "detectionFailed": "人物检测失败",
+      "detectionCancelled": "{{name}} 人物检测已取消",
+      "detectionModelNotFound": "检测模型未找到，请先下载模型"
     },
     "progress": {
       "generatingPreview": "正在生成预览视频（视频格式不支持直接播放）...",
@@ -214,12 +236,17 @@
       "extractingAudio": "提取音频中...",
       "separatingVocals": "人声分离中...",
       "separationQueued": "等待其他项目完成人声分离...",
-      "matchingSegments": "匹配音频片段中..."
+      "matchingSegments": "匹配音频片段中...",
+      "detectingPersons": "人物检测中...",
+      "detectionQueued": "等待其他检测任务完成..."
     }
   },
   "model": {
     "mdxInstHq3": {
       "description": "快速高质量，适合大多数场景"
+    },
+    "yolov11s": {
+      "description": "轻量级人物检测模型"
     }
   },
   "settings": {
@@ -253,6 +280,19 @@
       "downloaded": "已下载",
       "downloading": "下载中",
       "modelHint": "点击\"下载\"按钮预先下载模型。"
+    },
+    "detection": {
+      "title": "人物检测设置",
+      "confidenceThreshold": "置信度阈值",
+      "confidenceThresholdDesc": "检测置信度阈值，低于此值不识别为人物 (0.1-1.0)",
+      "frameInterval": "抽帧间隔",
+      "frameIntervalDesc": "每隔多少帧检测一次，值越小精度越高但速度越慢 (1-30)",
+      "minSegmentDuration": "最小片段时长 (秒)",
+      "minSegmentDurationDesc": "检测片段的最短时长，短于此值的片段将被忽略",
+      "maxGapDuration": "最大合并间隔 (秒)",
+      "maxGapDurationDesc": "相邻检测片段间隔小于此值将合并为一个片段",
+      "model": "检测模型",
+      "modelHint": "点击\"下载\"按钮预先下载检测模型。"
     },
     "log": {
       "title": "日志设置",
@@ -317,7 +357,7 @@
     "useSelected": "确认选择",
     "selectAll": "全选",
     "deselectAll": "取消全选",
-    "selected": "已选择 {{count}} 首",
+    "selected": "已选择 {{count}} 首 / 总 {{total}} 首",
     "deletedCount": "{{count}} 首已删除",
     "searchPlaceholder": "搜索音乐...",
     "emptyLibrary": "音乐库为空",
@@ -330,6 +370,7 @@
     "queued": "排队等待",
     "separating": "分离人声",
     "matching": "匹配中",
+    "detecting": "人物检测",
     "analyzed": "已分析",
     "exporting": "导出中",
     "exported": "已导出"

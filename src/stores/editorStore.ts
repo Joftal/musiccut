@@ -17,6 +17,10 @@ interface ProjectProcessingState {
   // 自定义音乐库选择状态
   useCustomMusicLibrary: boolean;
   selectedMusicIds: string[];
+  // 人物检测状态
+  detectionProcessing: boolean;
+  detectionProgress: number;
+  detectionMessage: string;
 }
 
 // 创建默认的项目处理状态
@@ -29,6 +33,9 @@ const createDefaultProcessingState = (overrides?: Partial<ProjectProcessingState
   processingProgress: 0,
   useCustomMusicLibrary: false,
   selectedMusicIds: [],
+  detectionProcessing: false,
+  detectionProgress: 0,
+  detectionMessage: '',
   ...overrides,
 });
 
@@ -42,6 +49,7 @@ interface EditorState {
   duration: number;
   processing: boolean;
   cancellingProjectId: string | null; // 正在取消的项目ID，防止快速重启任务时的竞态条件，同时确保取消状态只影响对应项目
+  cancellingDetectionProjectId: string | null; // 正在取消检测的项目ID
   processingMessage: string;
   processingProgress: number;
 
@@ -63,6 +71,11 @@ interface EditorState {
   // 自定义音乐库选择状态
   useCustomMusicLibrary: boolean;
   selectedMusicIds: string[];
+
+  // 人物检测状态（独立于人声分离）
+  detectionProcessing: boolean;
+  detectionProgress: number;
+  detectionMessage: string;
 
   // 操作
   loadProject: (id: string) => Promise<Project>;
@@ -98,10 +111,14 @@ interface EditorState {
   extractAudio: (outputPath: string, projectId: string, videoPath: string) => Promise<string>;
   separateVocals: (outputDir: string, projectId: string, audioPath: string, acceleration?: string) => Promise<{ vocalsPath: string; accompanimentPath: string }>;
   matchSegments: (projectId: string, accompanimentPath: string, minConfidence?: number, musicIds?: string[]) => Promise<void>;
-  cutVideo: (outputPath: string, keepMatched: boolean) => Promise<void>;
-  exportVideo: (outputPath: string) => Promise<void>;
-  exportVideoSeparately: (outputDir: string) => Promise<{ exportedCount: number; outputFiles: string[] }>;
+  cutVideo: (outputPath: string, keepMatched: boolean, forceReencode?: boolean) => Promise<void>;
+  exportVideo: (outputPath: string, forceReencode?: boolean) => Promise<void>;
+  exportVideoSeparately: (outputDir: string, forceReencode?: boolean) => Promise<{ exportedCount: number; outputFiles: string[] }>;
   cancelProcessing: () => Promise<void>;
+
+  // 人物检测操作（独立于人声分离 pipeline）
+  detectPersons: (projectId: string, videoPath: string, outputDir: string, acceleration?: string) => Promise<void>;
+  cancelDetection: (projectId: string) => Promise<void>;
 
   // 清除指定项目的缓存状态
   clearProjectState: (projectId: string) => void;
@@ -139,6 +156,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
       processingProgress: 0,
       useCustomMusicLibrary: get().useCustomMusicLibrary,
       selectedMusicIds: get().selectedMusicIds,
+      detectionProcessing: get().detectionProcessing,
+      detectionProgress: get().detectionProgress,
+      detectionMessage: get().detectionMessage,
     });
     // 只有当前项目才更新全局显示状态
     if (get().currentProject?.id === projectId) {
@@ -198,12 +218,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
     if (cancellingProjectId === projectId) {
       throw new Error(i18n.t('common.cancellingTask'));
     }
-    // 检查该项目是否已有任务在执行
-    if (currentProject?.id === projectId && get().processing) {
+    // 检查该项目是否已有任务在执行（pipeline 或检测）
+    if (currentProject?.id === projectId && (get().processing || get().detectionProcessing)) {
       throw new Error(i18n.t('common.taskRunning'));
     }
     const cachedState = projectProcessingStates.get(projectId);
-    if (cachedState?.processing) {
+    if (cachedState?.processing || cachedState?.detectionProcessing) {
       throw new Error(i18n.t('common.taskRunning'));
     }
     return true;
@@ -218,6 +238,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
   duration: 0,
   processing: false,
   cancellingProjectId: null,
+  cancellingDetectionProjectId: null,
   processingMessage: '',
   processingProgress: 0,
   audioPath: null,
@@ -233,6 +254,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
   // 自定义音乐库选择初始状态
   useCustomMusicLibrary: false,
   selectedMusicIds: [],
+  // 人物检测初始状态
+  detectionProcessing: false,
+  detectionProgress: 0,
+  detectionMessage: '',
 
   loadProject: async (id: string) => {
     const currentId = get().currentProject?.id;
@@ -273,6 +298,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
         processingProgress: get().processingProgress,
         useCustomMusicLibrary: get().useCustomMusicLibrary,
         selectedMusicIds: get().selectedMusicIds,
+        detectionProcessing: get().detectionProcessing,
+        detectionProgress: get().detectionProgress,
+        detectionMessage: get().detectionMessage,
       };
       const newStates = new Map(get().projectProcessingStates);
       newStates.set(currentId, currentState);
@@ -295,6 +323,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
     let restoredProcessing = savedState?.processing ?? false;
     let restoredMessage = savedState?.processingMessage ?? '';
     let restoredProgress = savedState?.processingProgress ?? 0;
+    let restoredDetectionProcessing = savedState?.detectionProcessing ?? false;
+    let restoredDetectionMessage = savedState?.detectionMessage ?? '';
+    let restoredDetectionProgress = savedState?.detectionProgress ?? 0;
 
     if (!savedState) {
       // 缓存不存在（可能被 matchSegments 完成后清理，或从未创建）
@@ -307,16 +338,26 @@ export const useEditorStore = create<EditorState>((set, get) => {
         projectStatus.progress < 1;
 
       if (isActiveInProjectStore) {
-        restoredProcessing = true;
-        restoredProgress = projectStatus.progress;
         const stageMessageMap: Record<string, string> = {
           extracting: 'editor.progress.extractingAudio',
           separating: 'editor.progress.separatingVocals',
           matching: 'editor.progress.matchingSegments',
+          detecting: 'editor.progress.detectingPersons',
           exporting: 'common.exportingVideo',
           queued: 'editor.progress.separationQueued',
         };
-        restoredMessage = stageMessageMap[projectStatus.stage] || '';
+
+        if (projectStatus.stage === 'detecting') {
+          // 检测任务恢复到 detectionProcessing
+          restoredDetectionProcessing = true;
+          restoredDetectionProgress = projectStatus.progress;
+          restoredDetectionMessage = stageMessageMap[projectStatus.stage] || '';
+        } else {
+          // pipeline 任务恢复到 processing
+          restoredProcessing = true;
+          restoredProgress = projectStatus.progress;
+          restoredMessage = stageMessageMap[projectStatus.stage] || '';
+        }
       }
     }
 
@@ -338,6 +379,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // 恢复自定义音乐库选择状态
       useCustomMusicLibrary: savedState?.useCustomMusicLibrary ?? false,
       selectedMusicIds: savedState?.selectedMusicIds ?? [],
+      // 恢复人物检测状态
+      detectionProcessing: restoredDetectionProcessing,
+      detectionProgress: restoredDetectionProgress,
+      detectionMessage: restoredDetectionMessage,
       // 清理已恢复的缓存条目
       projectProcessingStates: cleanedStates,
     });
@@ -359,6 +404,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
         processingProgress: get().processingProgress,
         useCustomMusicLibrary: get().useCustomMusicLibrary,
         selectedMusicIds: get().selectedMusicIds,
+        detectionProcessing: get().detectionProcessing,
+        detectionProgress: get().detectionProgress,
+        detectionMessage: get().detectionMessage,
       };
       const newStates = new Map(get().projectProcessingStates);
       newStates.set(currentId, currentState);
@@ -383,6 +431,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // 新项目重置自定义音乐库选择状态
       useCustomMusicLibrary: false,
       selectedMusicIds: [],
+      // 新项目重置人物检测状态
+      detectionProcessing: false,
+      detectionProgress: 0,
+      detectionMessage: '',
     });
     return project;
   },
@@ -662,7 +714,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
   },
 
-  cutVideo: async (outputPath: string, keepMatched: boolean) => {
+  cutVideo: async (outputPath: string, keepMatched: boolean, forceReencode?: boolean) => {
     const { currentProject, segments } = get();
     if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
@@ -682,6 +734,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         project_id: projectId,
         output_path: outputPath,
         keep_matched: keepMatched,
+        force_reencode: forceReencode,
       });
     } catch (error) {
       wasCancelled = get().cancellingProjectId === projectId || (error instanceof Error && error.message.includes('取消'));
@@ -692,23 +745,36 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
   },
 
-  exportVideo: async (outputPath: string) => {
+  exportVideo: async (outputPath: string, forceReencode?: boolean) => {
     const { currentProject, segments } = get();
     if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
     const projectId = currentProject.id;
 
+    // 详细记录前端传给后端的片段信息，用于排查导出内容与时间轴不一致的问题
+    const detected = segments.filter(s => s.status !== 'removed');
+    const removed = segments.filter(s => s.status === 'removed');
+    const musicSegs = segments.filter(s => s.segment_type === 'music');
+    const personSegs = segments.filter(s => s.segment_type === 'person');
+    const totalDuration = detected.reduce((sum, s) => sum + (s.end_time - s.start_time), 0);
+    console.log(`[exportVideo] 前端片段统计: 总计=${segments.length}, detected=${detected.length}, removed=${removed.length}, music=${musicSegs.length}, person=${personSegs.length}, detected总时长=${totalDuration.toFixed(2)}s`);
+    segments.forEach((s, i) => {
+      console.log(`[exportVideo]   片段[${i}]: id=${s.id}, ${s.start_time.toFixed(2)}s - ${s.end_time.toFixed(2)}s (时长 ${(s.end_time - s.start_time).toFixed(2)}s), status=${s.status}, type=${s.segment_type}`);
+    });
+
     // 检查是否可以开始新任务
     canStartProcessing(projectId);
 
     // 先保存 segments 到数据库，确保后端使用最新数据
+    console.log(`[exportVideo] 同步 ${segments.length} 个片段到数据库...`);
     await api.updateSegments(projectId, segments);
+    console.log(`[exportVideo] 片段同步完成，开始导出...`);
 
     startProcessingTask(projectId, 'common.exportingVideo');
 
     let wasCancelled = false;
     try {
-      await api.exportVideo(projectId, outputPath);
+      await api.exportVideo(projectId, outputPath, forceReencode);
     } catch (error) {
       wasCancelled = get().cancellingProjectId === projectId || (error instanceof Error && error.message.includes('取消'));
       throw error;
@@ -718,23 +784,36 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
   },
 
-  exportVideoSeparately: async (outputDir: string) => {
+  exportVideoSeparately: async (outputDir: string, forceReencode?: boolean) => {
     const { currentProject, segments } = get();
     if (!currentProject) throw new Error(i18n.t('common.noProjectOpen'));
 
     const projectId = currentProject.id;
 
+    // 详细记录前端传给后端的片段信息
+    const detected = segments.filter(s => s.status !== 'removed');
+    const removed = segments.filter(s => s.status === 'removed');
+    const musicSegs = segments.filter(s => s.segment_type === 'music');
+    const personSegs = segments.filter(s => s.segment_type === 'person');
+    const totalDuration = detected.reduce((sum, s) => sum + (s.end_time - s.start_time), 0);
+    console.log(`[exportVideoSeparately] 前端片段统计: 总计=${segments.length}, detected=${detected.length}, removed=${removed.length}, music=${musicSegs.length}, person=${personSegs.length}, detected总时长=${totalDuration.toFixed(2)}s`);
+    segments.forEach((s, i) => {
+      console.log(`[exportVideoSeparately]   片段[${i}]: id=${s.id}, ${s.start_time.toFixed(2)}s - ${s.end_time.toFixed(2)}s (时长 ${(s.end_time - s.start_time).toFixed(2)}s), status=${s.status}, type=${s.segment_type}`);
+    });
+
     // 检查是否可以开始新任务
     canStartProcessing(projectId);
 
     // 先保存 segments 到数据库，确保后端使用最新数据
+    console.log(`[exportVideoSeparately] 同步 ${segments.length} 个片段到数据库...`);
     await api.updateSegments(projectId, segments);
+    console.log(`[exportVideoSeparately] 片段同步完成，开始导出...`);
 
     startProcessingTask(projectId, 'common.exportingSegments');
 
     let wasCancelled = false;
     try {
-      const result = await api.exportVideoSeparately(projectId, outputDir);
+      const result = await api.exportVideoSeparately(projectId, outputDir, forceReencode);
       return {
         exportedCount: result.exported_count,
         outputFiles: result.output_files,
@@ -763,6 +842,106 @@ export const useEditorStore = create<EditorState>((set, get) => {
       throw error;
     }
     // 成功发送取消请求后，等待处理任务结束时重置状态
+  },
+
+  // 人物检测（独立于人声分离 pipeline）
+  detectPersons: async (projectId: string, videoPath: string, outputDir: string, acceleration?: string) => {
+    // 检查是否已有任务在运行（检测或 pipeline）
+    const { currentProject, projectProcessingStates, cancellingProjectId, cancellingDetectionProjectId } = get();
+    if (cancellingProjectId === projectId || cancellingDetectionProjectId === projectId) {
+      throw new Error(i18n.t('common.cancellingTask'));
+    }
+    if (currentProject?.id === projectId && (get().detectionProcessing || get().processing)) {
+      throw new Error(i18n.t('common.taskRunning'));
+    }
+    const cachedState = projectProcessingStates.get(projectId);
+    if (cachedState?.detectionProcessing || cachedState?.processing) {
+      throw new Error(i18n.t('common.taskRunning'));
+    }
+
+    // 设置检测处理状态
+    if (get().currentProject?.id === projectId) {
+      set({
+        detectionProcessing: true,
+        detectionProgress: 0,
+        detectionMessage: 'editor.progress.detectingPersons',
+      });
+    } else {
+      const states = new Map(get().projectProcessingStates);
+      const state = states.get(projectId) || createDefaultProcessingState();
+      state.detectionProcessing = true;
+      state.detectionProgress = 0;
+      state.detectionMessage = 'editor.progress.detectingPersons';
+      states.set(projectId, state);
+      set({ projectProcessingStates: states });
+    }
+
+    try {
+      const segments = await api.detectPersons(projectId, videoPath, outputDir, acceleration);
+      if (get().currentProject?.id === projectId) {
+        // 用检测结果替换所有片段
+        set({
+          segments,
+          detectionProcessing: false,
+          detectionProgress: 1,
+          detectionMessage: '',
+          cancellingDetectionProjectId: null,
+        });
+      } else {
+        // 非当前项目，重新加载并保存
+        const project = await api.loadProject(projectId);
+        const updatedProject = { ...project, segments, updated_at: new Date().toISOString() };
+        await api.saveProject(updatedProject);
+
+        const states = new Map(get().projectProcessingStates);
+        const state = states.get(projectId);
+        if (state) {
+          state.detectionProcessing = false;
+          state.detectionProgress = 1;
+          state.detectionMessage = '';
+          states.set(projectId, state);
+          set({ projectProcessingStates: states, cancellingDetectionProjectId: null });
+        }
+      }
+    } catch (error) {
+      const isCancellingThis = get().cancellingDetectionProjectId === projectId;
+      const wasCancelled = isCancellingThis || (error instanceof Error && error.message.includes('取消')) || (typeof error === 'string' && error.includes('取消'));
+      if (get().currentProject?.id === projectId) {
+        set({
+          detectionProcessing: false,
+          detectionProgress: 0,
+          detectionMessage: wasCancelled ? 'common.cancelled' : '',
+          cancellingDetectionProjectId: null,
+        });
+      } else {
+        const states = new Map(get().projectProcessingStates);
+        const state = states.get(projectId);
+        if (state) {
+          state.detectionProcessing = false;
+          state.detectionProgress = 0;
+          state.detectionMessage = '';
+          states.set(projectId, state);
+          set({ projectProcessingStates: states, cancellingDetectionProjectId: null });
+        } else {
+          set({ cancellingDetectionProjectId: null });
+        }
+      }
+      if (wasCancelled && projectId) {
+        const hasSegments = get().segments.length > 0;
+        useProjectStore.getState().restoreProjectStatus(projectId, hasSegments);
+      }
+      throw error;
+    }
+  },
+
+  cancelDetection: async (projectId: string) => {
+    set({ cancellingDetectionProjectId: projectId });
+    try {
+      await api.cancelDetection(projectId);
+    } catch (error) {
+      set({ cancellingDetectionProjectId: null });
+      throw error;
+    }
   },
 
   clearProjectState: (projectId: string) => {
@@ -899,6 +1078,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       duration: 0,
       processing: false,
       cancellingProjectId: null,
+      cancellingDetectionProjectId: null,
       processingMessage: '',
       processingProgress: 0,
       audioPath: null,
@@ -914,6 +1094,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // 重置自定义音乐库选择状态
       useCustomMusicLibrary: false,
       selectedMusicIds: [],
+      // 重置人物检测状态
+      detectionProcessing: false,
+      detectionProgress: 0,
+      detectionMessage: '',
     });
   },
 }});

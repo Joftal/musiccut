@@ -86,6 +86,7 @@ const Projects: React.FC = () => {
   const loading = useProjectStore((state) => state.loading);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const deleteProject = useProjectStore((state) => state.deleteProject);
+  const deleteAllProjects = useProjectStore((state) => state.deleteAllProjects);
   const projectStatus = useProjectStore((state) => state.projectStatus);
   const initProgressListeners = useProjectStore((state) => state.initProgressListeners);
   const { createProject } = useEditorStore();
@@ -98,6 +99,8 @@ const Projects: React.FC = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [appDir, setAppDir] = useState<string>('');
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, message: '' });
@@ -243,6 +246,26 @@ const Projects: React.FC = () => {
     }
   };
 
+  const confirmDeleteAllProjects = async () => {
+    setDeletingAll(true);
+    try {
+      await deleteAllProjects();
+      addToast({
+        type: 'success',
+        title: t('projects.toast.allDeleted'),
+      });
+      setShowDeleteAllDialog(false);
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: t('projects.toast.deleteAllFailed'),
+        description: getErrorMessage(error),
+      });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const handleImportFolder = async () => {
     const folderPath = await api.openFolderDialog();
     if (!folderPath) return;
@@ -351,6 +374,10 @@ const Projects: React.FC = () => {
           <p className="text-sm text-[hsl(var(--text-secondary))]">{t('projects.subtitle')}</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="danger" onClick={() => setShowDeleteAllDialog(true)} disabled={projects.length === 0 || importing}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            {t('projects.deleteAll')}
+          </Button>
           <Button variant="secondary" onClick={handleImportFolder} disabled={importing}>
             <FolderOpen className="w-4 h-4 mr-2" />
             {t('projects.importFolder')}
@@ -622,6 +649,38 @@ const Projects: React.FC = () => {
               loading={deleting}
             >
               {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除所有项目确认对话框 */}
+      <Dialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('projects.dialog.deleteAllTitle')}</DialogTitle>
+            <DialogClose />
+          </DialogHeader>
+          <DialogBody>
+            <div className="space-y-4">
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                <p className="text-red-500 font-medium">{t('projects.dialog.deleteAllWarning')}</p>
+              </div>
+              <p className="text-[hsl(var(--text-secondary))]">
+                {t('projects.dialog.deleteAllConfirm', { count: projects.length })}
+              </p>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDeleteAllDialog(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmDeleteAllProjects}
+              loading={deletingAll}
+            >
+              {t('projects.deleteAll')}
             </Button>
           </DialogFooter>
         </DialogContent>

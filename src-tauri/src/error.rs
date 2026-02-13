@@ -23,6 +23,9 @@ pub enum AppError {
     #[error("人声分离错误: {0}")]
     VocalSeparation(String),
 
+    #[error("人物检测错误: {0}")]
+    Detection(String),
+
     #[error("视频处理错误: {0}")]
     Video(String),
 

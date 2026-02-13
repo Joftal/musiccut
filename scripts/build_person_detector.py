@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-audio-separator PyInstaller build script
-Creates a standalone executable with ONNX Runtime GPU support
-Only supports MDX-Net ONNX models, no PyTorch required
+person-detector PyInstaller build script
+Creates a standalone executable with ultralytics + CUDA support
 """
 
 import os
@@ -14,9 +13,10 @@ from pathlib import Path
 # Configuration
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-OUTPUT_DIR = PROJECT_ROOT / "dist" / "audio-separator"
+PERSON_DETECTOR_SRC = PROJECT_ROOT / "python" / "person-detector"
+OUTPUT_DIR = PROJECT_ROOT / "dist" / "person-detector"
 TOOLS_DIR = PROJECT_ROOT / "tools"
-VENV_DIR = TOOLS_DIR / "venv"
+VENV_DIR = TOOLS_DIR / "venv-detector"
 
 # PyInstaller spec file content
 SPEC_CONTENT = '''# -*- mode: python ; coding: utf-8 -*-
@@ -27,16 +27,13 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, coll
 
 block_cipher = None
 
-# Collect audio-separator and its dependencies data files
 datas = []
-datas += collect_data_files('audio_separator')
-datas += collect_data_files('onnxruntime')
+datas += collect_data_files('ultralytics')
 datas += collect_data_files('numpy')
-datas += collect_data_files('scipy')
+datas += collect_data_files('PIL')
 
-# Collect NVIDIA CUDA runtime DLLs from nvidia-* pip packages
-# These are required by onnxruntime_providers_cuda.dll at runtime
 binaries = []
+# Collect NVIDIA CUDA runtime DLLs
 nvidia_packages = [
     'nvidia.cuda_runtime',
     'nvidia.cublas',
@@ -60,35 +57,23 @@ for pkg in nvidia_packages:
     except ImportError:
         print(f'  Warning: {pkg} not installed, skipping')
 
-# Also collect onnxruntime's own DLLs
-binaries += collect_dynamic_libs('onnxruntime')
-
-# Collect PyTorch DLLs (torch is required by audio-separator for tensor ops and STFT)
 binaries += collect_dynamic_libs('torch')
-
-# Collect torchvision DLLs (required by onnx2torch -> node_converters -> nms)
+binaries += collect_dynamic_libs('PIL')
 binaries += collect_dynamic_libs('torchvision')
 
-# Collect SciPy compiled extensions (needed for audio-separator internals)
-binaries += collect_dynamic_libs('scipy')
-
-# Collect all submodules
 hiddenimports = []
-hiddenimports += collect_submodules('audio_separator')
-hiddenimports += collect_submodules('onnxruntime')
+hiddenimports += collect_submodules('ultralytics')
 hiddenimports += collect_submodules('torch')
-hiddenimports += collect_submodules('torchvision')
-hiddenimports += collect_submodules('onnx2torch')
 hiddenimports += collect_submodules('numpy')
-hiddenimports += collect_submodules('scipy')
+hiddenimports += collect_submodules('PIL')
+hiddenimports += collect_submodules('torchvision')
 hiddenimports += [
-    'librosa',
-    'soundfile',
-    'pydub',
+    'cv2',
+    'tqdm',
 ]
 
 a = Analysis(
-    ['audio_separator_entry.py'],
+    ['person_detector_entry.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -116,7 +101,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='audio-separator',
+    name='person-detector',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -137,18 +122,23 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='audio-separator',
+    name='person-detector',
 )
 '''
 
 # Entry point script
 ENTRY_SCRIPT = '''#!/usr/bin/env python3
-"""audio-separator entry point"""
+"""person-detector entry point"""
 import sys
-from audio_separator.utils.cli import main
+import os
+
+# Add the source directory to path
+sys.path.insert(0, os.path.dirname(__file__))
+
+from main import main
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()
 '''
 
 
@@ -164,41 +154,44 @@ def create_venv():
     if VENV_DIR.exists():
         print(f"Virtual environment exists: {VENV_DIR}")
         return True
-
     print(f"Creating virtual environment: {VENV_DIR}")
     return run_command([sys.executable, "-m", "venv", str(VENV_DIR)])
 
 
 def get_pip():
-    """Get pip path"""
     if sys.platform == "win32":
         return VENV_DIR / "Scripts" / "pip.exe"
     return VENV_DIR / "bin" / "pip"
 
 
 def get_python():
-    """Get Python path"""
     if sys.platform == "win32":
         return VENV_DIR / "Scripts" / "python.exe"
     return VENV_DIR / "bin" / "python"
 
 
 def install_dependencies():
-    """Install dependencies (PyTorch CPU + ONNX Runtime GPU)"""
+    """Install dependencies"""
     pip = str(get_pip())
 
-    print("Installing PyTorch CUDA 12.8 (required by audio-separator for GPU acceleration)...")
+    print("Installing PyTorch + TorchVision (CUDA 12.8)...")
     if not run_command([pip, "install", "torch==2.10.0", "torchvision==0.25.0", "--index-url", "https://download.pytorch.org/whl/cu128"]):
         return False
 
-    print("Installing ONNX Runtime GPU...")
-    if not run_command([pip, "install", "onnxruntime-gpu==1.22.0"]):
-        print("Warning: ONNX Runtime GPU install failed, trying CPU version...")
-        if not run_command([pip, "install", "onnxruntime==1.22.0"]):
-            return False
+    print("Installing ultralytics...")
+    if not run_command([pip, "install", "ultralytics>=8.0.0"]):
+        return False
 
-    print("Installing audio-separator...")
-    if not run_command([pip, "install", "audio-separator==0.41.1"]):
+    print("Installing opencv-python-headless...")
+    if not run_command([pip, "install", "opencv-python-headless>=4.8.0"]):
+        return False
+
+    print("Installing tqdm...")
+    if not run_command([pip, "install", "tqdm>=4.65.0"]):
+        return False
+
+    print("Installing Pillow (PIL)...")
+    if not run_command([pip, "install", "Pillow>=10.0.0"]):
         return False
 
     print("Installing PyInstaller...")
@@ -209,29 +202,31 @@ def install_dependencies():
 
 
 def create_spec_file():
-    """Create PyInstaller spec file"""
-    spec_path = SCRIPT_DIR / "audio_separator.spec"
+    spec_path = SCRIPT_DIR / "person_detector.spec"
     print(f"Creating spec file: {spec_path}")
     spec_path.write_text(SPEC_CONTENT, encoding="utf-8")
     return spec_path
 
 
 def create_entry_script():
-    """Create entry point script"""
-    entry_path = SCRIPT_DIR / "audio_separator_entry.py"
+    entry_path = SCRIPT_DIR / "person_detector_entry.py"
     print(f"Creating entry script: {entry_path}")
     entry_path.write_text(ENTRY_SCRIPT, encoding="utf-8")
     return entry_path
 
 
 def build():
-    """Execute build"""
     python = str(get_python())
     spec_path = create_spec_file()
     create_entry_script()
 
+    # Copy main.py to scripts dir for PyInstaller
+    src_main = PERSON_DETECTOR_SRC / "main.py"
+    dst_main = SCRIPT_DIR / "main.py"
+    shutil.copy2(src_main, dst_main)
+
     print("Starting PyInstaller build...")
-    return run_command([
+    success = run_command([
         python, "-m", "PyInstaller",
         "--distpath", str(OUTPUT_DIR.parent),
         "--workpath", str(SCRIPT_DIR / "build"),
@@ -239,11 +234,16 @@ def build():
         str(spec_path)
     ], cwd=SCRIPT_DIR)
 
+    # Clean up copied main.py
+    if dst_main.exists():
+        dst_main.unlink()
+
+    return success
+
 
 def copy_to_tauri():
-    """Copy to Tauri resources directory"""
     src = OUTPUT_DIR
-    dst = PROJECT_ROOT / "src-tauri" / "resources" / "audio-separator"
+    dst = PROJECT_ROOT / "src-tauri" / "resources" / "person-detector"
 
     if not src.exists():
         print(f"Error: Build output not found: {src}")
@@ -258,31 +258,26 @@ def copy_to_tauri():
     return True
 
 
-def main():
-    """Main function"""
+def main_build():
     print("=" * 60)
-    print("audio-separator PyInstaller Build Tool")
+    print("person-detector PyInstaller Build Tool")
     print("=" * 60)
 
-    # Step 1: Create virtual environment
     print("\n[1/4] Creating virtual environment...")
     if not create_venv():
         print("Error: Failed to create virtual environment")
         return 1
 
-    # Step 2: Install dependencies
     print("\n[2/4] Installing dependencies...")
     if not install_dependencies():
         print("Error: Failed to install dependencies")
         return 1
 
-    # Step 3: Build
     print("\n[3/4] Building...")
     if not build():
         print("Error: Build failed")
         return 1
 
-    # Step 4: Copy to Tauri resources
     print("\n[4/4] Copying to Tauri resources...")
     if not copy_to_tauri():
         print("Warning: Copy failed, please copy manually")
@@ -296,4 +291,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_build())

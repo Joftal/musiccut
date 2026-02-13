@@ -7,3 +7,4 @@ pub mod fingerprint;
 pub mod video;
 pub mod project;
 pub mod models;
+pub mod detection;

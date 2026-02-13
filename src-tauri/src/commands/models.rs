@@ -4,7 +4,7 @@ use crate::models::{self, ModelInfo, ModelStatus};
 use crate::error::{AppResult, AppError};
 use crate::utils::hidden_command;
 use std::process::Stdio;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read as _};
 use tauri::Manager;
 use serde::Serialize;
 use tracing::{info, error, debug};
@@ -19,46 +19,186 @@ pub struct ModelDownloadProgress {
     pub error: Option<String>,
 }
 
-/// 获取所有可用模型列表
+/// 获取所有可用模型列表（包括分离模型和检测模型）
 #[tauri::command]
 pub async fn get_available_models() -> AppResult<Vec<ModelInfo>> {
-    Ok(models::get_available_models())
+    let mut all = models::get_available_models();
+    all.extend(models::get_detection_models());
+    Ok(all)
 }
 
-/// 获取所有模型状态
+/// 获取所有模型状态（包括分离模型和检测模型）
 #[tauri::command]
 pub async fn get_models_status() -> AppResult<Vec<ModelStatus>> {
-    Ok(models::get_all_models_status())
+    let mut all = models::get_all_models_status();
+    all.extend(models::get_all_detection_models_status());
+    Ok(all)
 }
 
 /// 检查单个模型是否已下载
 #[tauri::command]
 pub async fn check_model_downloaded(model_id: String) -> AppResult<bool> {
-    let model = models::get_model_by_id(&model_id);
-    match model {
-        Some(m) => {
-            let status = models::check_model_downloaded(&m);
-            Ok(status.downloaded)
-        }
-        None => Ok(false),
+    // 先查分离模型，再查检测模型
+    if let Some(m) = models::get_model_by_id(&model_id) {
+        return Ok(models::check_model_downloaded(&m).downloaded);
     }
+    if let Some(m) = models::get_detection_model_by_id(&model_id) {
+        return Ok(models::check_detection_model_downloaded(&m).downloaded);
+    }
+    Ok(false)
 }
 
 /// 根据 ID 获取模型信息
 #[tauri::command]
 pub async fn get_model_info(model_id: String) -> AppResult<Option<ModelInfo>> {
-    Ok(models::get_model_by_id(&model_id))
+    if let Some(m) = models::get_model_by_id(&model_id) {
+        return Ok(Some(m));
+    }
+    Ok(models::get_detection_model_by_id(&model_id))
 }
 
 /// 下载模型
-/// 通过运行 audio-separator 触发模型下载
+/// 分离模型通过 audio-separator 触发下载，检测模型通过 HTTP 直接下载
 #[tauri::command]
 pub async fn download_model(
     app_handle: tauri::AppHandle,
     model_id: String,
 ) -> AppResult<()> {
+    // 先查检测模型
+    if let Some(model) = models::get_detection_model_by_id(&model_id) {
+        return download_detection_model(app_handle, model_id, model).await;
+    }
+
+    // 否则按分离模型处理
     let model = models::get_model_by_id(&model_id)
         .ok_or_else(|| AppError::NotFound(format!("模型不存在: {}", model_id)))?;
+
+    download_separation_model(app_handle, model_id, model).await
+}
+
+/// 下载检测模型（YOLO）- 通过 HTTP 直接下载 .pt 文件
+async fn download_detection_model(
+    app_handle: tauri::AppHandle,
+    model_id: String,
+    model: ModelInfo,
+) -> AppResult<()> {
+    let model_dir = models::ensure_detection_model_dir(&model)?;
+    let model_path = model_dir.join(&model.filename);
+
+    info!("开始下载检测模型: {} ({})", model.name, model.filename);
+    info!("目标路径: {}", model_path.display());
+
+    let _ = app_handle.emit_all("model-download-progress", ModelDownloadProgress {
+        model_id: model_id.clone(),
+        progress: 0.0,
+        message: "准备下载检测模型...".to_string(),
+        completed: false,
+        error: None,
+    });
+
+    // YOLO 模型下载 URL (GitHub releases)
+    let download_url = format!(
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/{}",
+        model.filename
+    );
+    info!("下载地址: {}", download_url);
+
+    let _ = app_handle.emit_all("model-download-progress", ModelDownloadProgress {
+        model_id: model_id.clone(),
+        progress: 0.1,
+        message: "正在下载检测模型...".to_string(),
+        completed: false,
+        error: None,
+    });
+
+    // 在阻塞线程中执行 HTTP 下载
+    let model_id_clone = model_id.clone();
+    let app_handle_clone = app_handle.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let response = ureq::get(&download_url)
+            .call()
+            .map_err(|e| AppError::Detection(format!("下载检测模型失败: {}", e)))?;
+
+        let content_length = response.header("Content-Length")
+            .and_then(|s| s.parse::<u64>().ok());
+
+        // 写入临时文件，完成后重命名
+        let temp_path = model_path.with_extension("pt.tmp");
+        let mut file = std::fs::File::create(&temp_path)
+            .map_err(|e| AppError::Detection(format!("创建文件失败: {}", e)))?;
+
+        let mut reader = response.into_reader();
+        let mut downloaded: u64 = 0;
+        let mut buf = [0u8; 65536];
+        let mut last_progress: f32 = 0.1;
+
+        loop {
+            let n = reader.read(&mut buf)
+                .map_err(|e| AppError::Detection(format!("读取数据失败: {}", e)))?;
+            if n == 0 { break; }
+
+            std::io::Write::write_all(&mut file, &buf[..n])
+                .map_err(|e| AppError::Detection(format!("写入文件失败: {}", e)))?;
+
+            downloaded += n as u64;
+
+            if let Some(total) = content_length {
+                let progress = 0.1 + (downloaded as f32 / total as f32) * 0.85;
+                // 每 5% 更新一次进度
+                if progress - last_progress >= 0.05 {
+                    last_progress = progress;
+                    let _ = app_handle_clone.emit_all("model-download-progress", ModelDownloadProgress {
+                        model_id: model_id_clone.clone(),
+                        progress,
+                        message: format!("下载中... {:.0}%", progress * 100.0),
+                        completed: false,
+                        error: None,
+                    });
+                }
+            }
+        }
+
+        drop(file);
+
+        // 重命名临时文件
+        std::fs::rename(&temp_path, &model_path)
+            .map_err(|e| AppError::Detection(format!("重命名文件失败: {}", e)))?;
+
+        info!("检测模型下载完成: {}", model_path.display());
+        Ok::<(), AppError>(())
+    }).await.map_err(|e| AppError::Detection(format!("下载任务失败: {}", e)))?;
+
+    match result {
+        Ok(()) => {
+            let _ = app_handle.emit_all("model-download-progress", ModelDownloadProgress {
+                model_id: model_id.clone(),
+                progress: 1.0,
+                message: "下载完成".to_string(),
+                completed: true,
+                error: None,
+            });
+            Ok(())
+        }
+        Err(e) => {
+            error!("检测模型下载失败: {}", e);
+            let _ = app_handle.emit_all("model-download-progress", ModelDownloadProgress {
+                model_id: model_id.clone(),
+                progress: 0.0,
+                message: "下载失败".to_string(),
+                completed: true,
+                error: Some(format!("{}", e)),
+            });
+            Err(e)
+        }
+    }
+}
+
+/// 下载分离模型 - 通过 audio-separator 触发下载
+async fn download_separation_model(
+    app_handle: tauri::AppHandle,
+    model_id: String,
+    model: ModelInfo,
+) -> AppResult<()> {
 
     let model_dir = models::ensure_model_dir(&model)?;
     info!("开始下载模型: {} ({})", model.name, model.filename);

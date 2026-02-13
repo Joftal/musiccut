@@ -46,7 +46,8 @@
 | 🎵 **Music Library** | Import music files and automatically extract audio fingerprints to build a local music library |
 | 🔍 **Smart Recognition** | High-precision audio fingerprint matching using Chromaprint |
 | 🎤 **Vocal Separation** | Integrated audio-separator with GPU-accelerated AI vocal separation |
-| ✂️ **Auto Editing** | Automatically mark and clip video segments based on music matching results |
+| 👤 **Person Detection** | YOLOv11-based person detection to automatically mark segments with people on screen |
+| ✂️ **Auto Editing** | Automatically mark and clip video segments based on music matching or person detection results |
 | 🎛️ **Manual Adjustment** | Support manual adjustment of clip start and end times |
 | 📦 **Batch Processing** | Support batch video import and parallel project analysis |
 
@@ -87,6 +88,7 @@
 - 🎬 **FFmpeg** - Video/Audio processing
 - 🎵 **Chromaprint** - Audio fingerprint extraction
 - 🤖 **audio-separator** - AI vocal separation
+- 👤 **person-detector** - YOLOv11-based person detection
 
 ---
 
@@ -152,7 +154,7 @@ cd musiccut
 |:---:|:---|:---|
 | 1️⃣ | **Import Music Library** | Import music files to be recognized in the "Library" page |
 | 2️⃣ | **Create Project** | Create a new project in the "Projects" page and select videos to process |
-| 3️⃣ | **Start Recognition** | Click "Start Recognition" to auto extract audio → separate vocals → match fingerprints |
+| 3️⃣ | **Start Recognition** | Click "Start Recognition" to auto extract audio → separate vocals → match fingerprints; or use "Person Detection" to mark segments with people on screen |
 | 4️⃣ | **Confirm Segments** | Review detected segments, confirm to keep or remove |
 | 5️⃣ | **Export Video** | Export edited video (merged or segmented export) |
 

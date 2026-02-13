@@ -43,6 +43,9 @@ export interface VideoInfo {
   format: string;
 }
 
+// 片段类型
+export type SegmentType = 'music' | 'person';
+
 // 片段
 export interface Segment {
   id: string;
@@ -53,6 +56,8 @@ export interface Segment {
   end_time: number;
   confidence: number;
   status: SegmentStatus;
+  /** 片段类型：音乐匹配片段或人物检测片段，后端始终返回，默认 'music' */
+  segment_type: SegmentType;
 }
 
 // 自定义剪辑片段（临时，不持久化到数据库）
@@ -107,6 +112,7 @@ export interface CutParams {
   project_id: string;
   output_path: string;
   keep_matched: boolean;
+  force_reencode?: boolean;
 }
 
 // GPU 信息
@@ -157,8 +163,8 @@ export interface SeparationConfig {
   output_format: string;
 }
 
-// 模型架构类型 (仅支持 MDX-Net)
-export type ModelArchitecture = 'mdxnet';
+// 模型架构类型
+export type ModelArchitecture = 'mdxnet' | 'yolo';
 
 // 模型信息
 export interface ModelInfo {
@@ -207,13 +213,25 @@ export interface WindowState {
   maximized: boolean;
 }
 
+// 人物检测配置
+export interface DetectionConfig {
+  confidence_threshold: number;
+  frame_interval: number;
+  min_segment_duration: number;
+  max_gap_duration: number;
+}
+
 // 应用配置
 export interface AppConfig {
   detected_gpu: GpuType;
   separation: SeparationConfig;
   matching: MatchConfig;
-  window_state?: WindowState;
-  log_level?: LogLevel;
+  /** 人物检测配置，后端始终返回（带默认值） */
+  detection: DetectionConfig;
+  /** 窗口状态，后端始终返回（带默认值） */
+  window_state: WindowState;
+  /** 日志级别，后端始终返回（带默认值） */
+  log_level: LogLevel;
 }
 
 // 进度信息

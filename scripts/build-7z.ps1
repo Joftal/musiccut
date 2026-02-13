@@ -14,6 +14,7 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $FFmpegDir = Join-Path $ProjectRoot "ffmpeg"
 $ModelsDir = Join-Path $ProjectRoot "models"
 $AudioSeparatorDist = Join-Path $ProjectRoot "src-tauri\resources\audio-separator"
+$PersonDetectorDist = Join-Path $ProjectRoot "src-tauri\resources\person-detector"
 $ReleaseDir = Join-Path $ProjectRoot "src-tauri\target\release"
 $OutputDir = Join-Path $ProjectRoot "dist\MusicCut"
 $FinalOutput = Join-Path $ProjectRoot "dist"
@@ -65,7 +66,7 @@ if (Test-Path (Join-Path $FFmpegDir "ffmpeg.exe")) {
 
 # Models
 $modelFiles = Get-ChildItem -Path $ModelsDir -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in @(".onnx", ".ckpt", ".th", ".yaml") }
+    Where-Object { $_.Extension -in @(".onnx", ".ckpt", ".th", ".yaml", ".pt") }
 $modelCount = $modelFiles.Count
 $modelSize = ($modelFiles | Measure-Object -Property Length -Sum).Sum
 $modelSizeMB = [math]::Round($modelSize / 1MB, 2)
@@ -85,6 +86,16 @@ if (Test-Path $AudioSeparatorDist) {
     Write-Host "[!]  audio-separator not found" -ForegroundColor Yellow
 }
 
+# person-detector
+$detSizeMB = 0
+if (Test-Path $PersonDetectorDist) {
+    $detSize = (Get-ChildItem -Path $PersonDetectorDist -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $detSizeMB = [math]::Round($detSize / 1MB, 2)
+    Write-Host "[OK] person-detector: $detSizeMB MB" -ForegroundColor Green
+} else {
+    Write-Host "[!]  person-detector not found" -ForegroundColor Yellow
+}
+
 if ($hasError) {
     Write-Host ""
     Write-Host "Missing required resources." -ForegroundColor Red
@@ -92,7 +103,7 @@ if ($hasError) {
 }
 
 # Calculate total size
-$totalSizeMB = $ffmpegSizeMB + $modelSizeMB + $sepSizeMB + 20
+$totalSizeMB = $ffmpegSizeMB + $modelSizeMB + $sepSizeMB + $detSizeMB + 20
 Write-Host ""
 Write-Host "Estimated package size: ~$totalSizeMB MB (before compression)" -ForegroundColor Cyan
 
@@ -184,6 +195,13 @@ if (Test-Path $AudioSeparatorDist) {
     Write-Host "Copying audio-separator ($sepSizeMB MB)..." -ForegroundColor Gray
     $destSep = Join-Path $OutputDir "audio-separator"
     Copy-Item -Recurse $AudioSeparatorDist $destSep
+}
+
+# Copy person-detector
+if (Test-Path $PersonDetectorDist) {
+    Write-Host "Copying person-detector ($detSizeMB MB)..." -ForegroundColor Gray
+    $destDet = Join-Path $OutputDir "person-detector"
+    Copy-Item -Recurse $PersonDetectorDist $destDet
 }
 
 # Create run script

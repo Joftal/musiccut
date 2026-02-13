@@ -15,6 +15,7 @@ mod error;
 mod utils;
 mod models;
 mod logging;
+mod detection;
 
 use tauri::{Manager, WindowEvent, PhysicalSize, PhysicalPosition};
 use tracing::{info, warn, error};
@@ -200,6 +201,7 @@ fn main() {
             commands::library::import_music_files,
             commands::library::get_music_library,
             commands::library::delete_music,
+            commands::library::delete_all_music,
             commands::library::search_music,
             commands::library::get_music_info,
 
@@ -232,6 +234,7 @@ fn main() {
             commands::project::load_project,
             commands::project::get_projects,
             commands::project::delete_project,
+            commands::project::delete_all_projects,
             commands::project::update_segments,
             commands::project::update_project_preview,
             commands::project::scan_video_files,
@@ -243,6 +246,10 @@ fn main() {
             commands::models::check_model_downloaded,
             commands::models::get_model_info,
             commands::models::download_model,
+
+            // 人物检测命令
+            commands::detection::detect_persons,
+            commands::detection::cancel_detection,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

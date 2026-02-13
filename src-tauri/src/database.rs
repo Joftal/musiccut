@@ -8,7 +8,7 @@ use once_cell::sync::OnceCell;
 use tracing::{warn, error, info, debug};
 use rayon::prelude::*;
 use crate::error::{AppError, AppResult};
-use crate::utils::{MusicInfo, Project, Segment, VideoInfo, SegmentStatus};
+use crate::utils::{MusicInfo, Project, Segment, VideoInfo, SegmentStatus, SegmentType};
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -85,6 +85,27 @@ pub fn init_database(db_path: &Path) -> AppResult<()> {
         [],
     )?;
 
+    // 迁移：添加 segment_type 列（人物检测功能）
+    // 使用 PRAGMA table_info 检查列是否已存在
+    let has_segment_type: bool = conn
+        .prepare("PRAGMA table_info(segments)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|name| name == "segment_type");
+
+    if !has_segment_type {
+        info!("[DB] 迁移: 添加 segment_type 列到 segments 表（人物检测功能）");
+        conn.execute(
+            "ALTER TABLE segments ADD COLUMN segment_type TEXT DEFAULT 'music'",
+            [],
+        )?;
+        // 创建 segment_type 索引
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_segments_type ON segments(project_id, segment_type)",
+            [],
+        )?;
+    }
+
     DB.set(Mutex::new(conn))
         .map_err(|_| AppError::Database(rusqlite::Error::InvalidQuery))?;
 
@@ -115,7 +136,9 @@ fn get_conn() -> AppResult<std::sync::MutexGuard<'static, Connection>> {
 // ==================== 音乐库操作 ====================
 
 /// 插入音乐
+/// 插入或更新音乐记录（含指纹数据）
 pub fn insert_music(music: &MusicInfo, fingerprint: &[u8]) -> AppResult<()> {
+    debug!("[DB] 插入音乐: id={}, title={}", music.id, music.title);
     let conn = get_conn()?;
     conn.execute(
         "INSERT OR REPLACE INTO music (id, title, album, duration, file_path, fingerprint, fingerprint_hash, created_at)
@@ -239,8 +262,9 @@ pub fn get_music_by_id(id: &str) -> AppResult<Option<MusicInfo>> {
     }
 }
 
-/// 获取所有音乐指纹
+/// 获取所有音乐指纹（用于全库匹配）
 pub fn get_all_fingerprints() -> AppResult<Vec<(String, String, Vec<u8>)>> {
+    debug!("[DB] 获取所有音乐指纹");
     let conn = get_conn()?;
     let mut stmt = conn.prepare("SELECT id, title, fingerprint FROM music")?;
 
@@ -262,10 +286,10 @@ pub fn get_all_fingerprints() -> AppResult<Vec<(String, String, Vec<u8>)>> {
 
 /// 根据 ID 列表获取指定音乐的指纹
 pub fn get_fingerprints_by_ids(ids: &[String]) -> AppResult<Vec<(String, String, Vec<u8>)>> {
-    debug!("get_fingerprints_by_ids: 请求 {} 个音乐 ID", ids.len());
+    debug!("[DB] get_fingerprints_by_ids: 请求 {} 个音乐 ID", ids.len());
 
     if ids.is_empty() {
-        debug!("get_fingerprints_by_ids: ID 列表为空，返回空结果");
+        debug!("[DB] get_fingerprints_by_ids: ID 列表为空，返回空结果");
         return Ok(Vec::new());
     }
 
@@ -278,7 +302,7 @@ pub fn get_fingerprints_by_ids(ids: &[String]) -> AppResult<Vec<(String, String,
         placeholders.join(", ")
     );
 
-    debug!("get_fingerprints_by_ids: 执行查询，ID 列表: {:?}", ids);
+    debug!("[DB] get_fingerprints_by_ids: 执行查询，ID 列表: {:?}", ids);
 
     let mut stmt = conn.prepare(&sql)?;
 
@@ -303,14 +327,14 @@ pub fn get_fingerprints_by_ids(ids: &[String]) -> AppResult<Vec<(String, String,
         let found_ids: std::collections::HashSet<_> = result.iter().map(|(id, _, _)| id.clone()).collect();
         let missing_ids: Vec<_> = ids.iter().filter(|id| !found_ids.contains(*id)).collect();
         warn!(
-            "get_fingerprints_by_ids: 请求 {} 个，实际获取 {} 个，缺失 ID: {:?}",
+            "[DB] get_fingerprints_by_ids: 请求 {} 个，实际获取 {} 个，缺失 ID: {:?}",
             ids.len(),
             result.len(),
             missing_ids
         );
     } else {
         info!(
-            "get_fingerprints_by_ids: 成功获取 {} 个音乐指纹",
+            "[DB] get_fingerprints_by_ids: 成功获取 {} 个音乐指纹",
             result.len()
         );
     }
@@ -319,13 +343,15 @@ pub fn get_fingerprints_by_ids(ids: &[String]) -> AppResult<Vec<(String, String,
 }
 
 /// 删除音乐
+/// 删除指定音乐记录
 pub fn delete_music(id: &str) -> AppResult<()> {
+    debug!("[DB] 删除音乐: id={}", id);
     let conn = get_conn()?;
     conn.execute("DELETE FROM music WHERE id = ?1", [id])?;
     Ok(())
 }
 
-/// 检查文件是否已存在
+/// 检查音乐文件路径是否已存在于数据库中
 pub fn music_exists_by_path(path: &str) -> AppResult<bool> {
     let conn = get_conn()?;
     let count: i32 = conn.query_row(
@@ -349,8 +375,9 @@ pub fn project_exists_by_path(path: &str) -> AppResult<bool> {
     Ok(count > 0)
 }
 
-/// 插入项目
+/// 插入项目及其片段
 pub fn insert_project(project: &Project) -> AppResult<()> {
+    debug!("[DB] 插入项目: id={}, name={}", project.id, project.name);
     let conn = get_conn()?;
     let video_info_json = serde_json::to_string(&project.video_info)?;
 
@@ -376,8 +403,9 @@ pub fn insert_project(project: &Project) -> AppResult<()> {
     Ok(())
 }
 
-/// 更新项目
+/// 更新项目基本信息（不含片段）
 pub fn update_project(project: &Project) -> AppResult<()> {
+    debug!("[DB] 更新项目: id={}, name={}", project.id, project.name);
     let conn = get_conn()?;
     let video_info_json = serde_json::to_string(&project.video_info)?;
 
@@ -445,7 +473,7 @@ pub fn get_all_projects() -> AppResult<Vec<Project>> {
     // 查询 2: 一次性获取所有片段（解决 N+1 查询问题）
     let mut seg_stmt = conn.prepare(
         "SELECT s.id, s.project_id, s.music_id, m.title,
-                s.start_time, s.end_time, s.confidence, s.status
+                s.start_time, s.end_time, s.confidence, s.status, s.segment_type
          FROM segments s
          LEFT JOIN music m ON s.music_id = m.id
          ORDER BY s.start_time"
@@ -467,6 +495,7 @@ pub fn get_all_projects() -> AppResult<Vec<Project>> {
             end_time: row.get(5)?,
             confidence: row.get(6)?,
             status,
+            segment_type: SegmentType::from_str(&row.get::<_, String>(8).unwrap_or_else(|_| "music".to_string())),
         })
     })?;
 
@@ -547,8 +576,9 @@ pub fn get_project_by_id(id: &str) -> AppResult<Option<Project>> {
     }
 }
 
-/// 删除项目
+/// 删除项目及其所有片段
 pub fn delete_project(id: &str) -> AppResult<()> {
+    debug!("[DB] 删除项目: id={}", id);
     let conn = get_conn()?;
     conn.execute("DELETE FROM segments WHERE project_id = ?1", [id])?;
     conn.execute("DELETE FROM projects WHERE id = ?1", [id])?;
@@ -557,8 +587,9 @@ pub fn delete_project(id: &str) -> AppResult<()> {
 
 // ==================== 片段操作 ====================
 
-/// 插入片段
+/// 插入或更新单个片段
 pub fn insert_segment(segment: &Segment) -> AppResult<()> {
+    debug!("[DB] 插入片段: id={}, project_id={}, type={}", segment.id, segment.project_id, segment.segment_type.as_str());
     let conn = get_conn()?;
     let status = match segment.status {
         SegmentStatus::Detected => "detected",
@@ -566,8 +597,8 @@ pub fn insert_segment(segment: &Segment) -> AppResult<()> {
     };
 
     conn.execute(
-        "INSERT OR REPLACE INTO segments (id, project_id, music_id, start_time, end_time, confidence, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT OR REPLACE INTO segments (id, project_id, music_id, start_time, end_time, confidence, status, segment_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             segment.id,
             segment.project_id,
@@ -576,6 +607,7 @@ pub fn insert_segment(segment: &Segment) -> AppResult<()> {
             segment.end_time,
             segment.confidence,
             status,
+            segment.segment_type.as_str(),
         ],
     )?;
     Ok(())
@@ -587,7 +619,7 @@ pub fn get_segments_by_project(project_id: &str) -> AppResult<Vec<Segment>> {
     // 使用 LEFT JOIN 从 music 表获取标题
     let mut stmt = conn.prepare(
         "SELECT s.id, s.project_id, s.music_id, m.title,
-                s.start_time, s.end_time, s.confidence, s.status
+                s.start_time, s.end_time, s.confidence, s.status, s.segment_type
          FROM segments s
          LEFT JOIN music m ON s.music_id = m.id
          WHERE s.project_id = ?1 ORDER BY s.start_time"
@@ -609,6 +641,7 @@ pub fn get_segments_by_project(project_id: &str) -> AppResult<Vec<Segment>> {
             end_time: row.get(5)?,
             confidence: row.get(6)?,
             status,
+            segment_type: SegmentType::from_str(&row.get::<_, String>(8).unwrap_or_else(|_| "music".to_string())),
         })
     })?;
 
@@ -632,6 +665,8 @@ pub fn batch_insert_segments(segments: &[Segment]) -> AppResult<()> {
     if segments.is_empty() {
         return Ok(());
     }
+    debug!("[DB] 批量插入片段: {} 个, project_id={}", segments.len(),
+        segments.first().map(|s| s.project_id.as_str()).unwrap_or("?"));
     let conn = get_conn()?;
     conn.execute_batch("BEGIN")?;
     for segment in segments {
@@ -640,8 +675,8 @@ pub fn batch_insert_segments(segments: &[Segment]) -> AppResult<()> {
             SegmentStatus::Removed => "removed",
         };
         if let Err(e) = conn.execute(
-            "INSERT OR REPLACE INTO segments (id, project_id, music_id, start_time, end_time, confidence, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO segments (id, project_id, music_id, start_time, end_time, confidence, status, segment_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 segment.id,
                 segment.project_id,
@@ -650,6 +685,7 @@ pub fn batch_insert_segments(segments: &[Segment]) -> AppResult<()> {
                 segment.end_time,
                 segment.confidence,
                 status,
+                segment.segment_type.as_str(),
             ],
         ) {
             let _ = conn.execute_batch("ROLLBACK");
@@ -660,16 +696,127 @@ pub fn batch_insert_segments(segments: &[Segment]) -> AppResult<()> {
     Ok(())
 }
 
-/// 批量更新片段
+/// 批量更新片段（通过 INSERT OR REPLACE 实现）
 pub fn batch_update_segments(segments: &[Segment]) -> AppResult<()> {
+    debug!("[DB] 批量更新片段: count={}", segments.len());
     batch_insert_segments(segments)
 }
 
-/// 清空所有数据（重置数据库）
+/// 清空所有数据（项目、片段、音乐），在事务中执行以保证原子性
 pub fn clear_all_data() -> AppResult<()> {
+    info!("[DB] 清空所有数据");
+    let mut conn = get_conn()?;
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM segments", [])?;
+    tx.execute("DELETE FROM projects", [])?;
+    tx.execute("DELETE FROM music", [])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// 清空所有项目和片段，在事务中执行以保证原子性
+pub fn clear_all_projects() -> AppResult<()> {
+    info!("[DB] 清空所有项目和片段");
+    let mut conn = get_conn()?;
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM segments", [])?;
+    tx.execute("DELETE FROM projects", [])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// 清空所有音乐记录
+pub fn clear_all_music() -> AppResult<()> {
+    info!("[DB] 清空所有音乐");
     let conn = get_conn()?;
-    conn.execute("DELETE FROM segments", [])?;
-    conn.execute("DELETE FROM projects", [])?;
     conn.execute("DELETE FROM music", [])?;
     Ok(())
+}
+
+// ==================== 人物检测片段操作 ====================
+// 以下函数专用于人物检测功能，按 segment_type 字段区分片段类型。
+
+/// 批量插入检测片段（使用事务）
+///
+/// 将 person-detector 输出的检测结果批量写入数据库，使用事务保证原子性。
+/// segment_type 参数覆盖片段自身的 segment_type 字段，确保类型一致。
+pub fn batch_insert_detection_segments(segments: &[Segment], segment_type: &str) -> AppResult<()> {
+    if segments.is_empty() {
+        debug!("[DB] 批量插入检测片段: 空列表，跳过");
+        return Ok(());
+    }
+    debug!("[DB] 批量插入 {} 条 {} 片段", segments.len(), segment_type);
+    let conn = get_conn()?;
+    conn.execute_batch("BEGIN")?;
+    for segment in segments {
+        let status = match segment.status {
+            SegmentStatus::Detected => "detected",
+            SegmentStatus::Removed => "removed",
+        };
+        if let Err(e) = conn.execute(
+            "INSERT OR REPLACE INTO segments (id, project_id, music_id, start_time, end_time, confidence, status, segment_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                segment.id,
+                segment.project_id,
+                segment.music_id,
+                segment.start_time,
+                segment.end_time,
+                segment.confidence,
+                status,
+                segment_type,
+            ],
+        ) {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(AppError::Database(e));
+        }
+    }
+    conn.execute_batch("COMMIT")?;
+    debug!("[DB] 批量插入 {} 条 {} 片段完成", segments.len(), segment_type);
+    Ok(())
+}
+
+/// 获取项目的指定类型片段
+///
+/// 按 start_time 排序返回，LEFT JOIN music 表获取音乐标题（仅 music 类型片段有值）。
+#[allow(dead_code)]
+pub fn get_segments_by_type(project_id: &str, segment_type: &str) -> AppResult<Vec<Segment>> {
+    debug!("[DB] 查询片段: project_id={}, segment_type={}", project_id, segment_type);
+    let conn = get_conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.project_id, s.music_id, m.title,
+                s.start_time, s.end_time, s.confidence, s.status, s.segment_type
+         FROM segments s
+         LEFT JOIN music m ON s.music_id = m.id
+         WHERE s.project_id = ?1 AND s.segment_type = ?2
+         ORDER BY s.start_time"
+    )?;
+
+    let segment_iter = stmt.query_map(params![project_id, segment_type], |row| {
+        let status_str: String = row.get(7)?;
+        let status = match status_str.as_str() {
+            "removed" => SegmentStatus::Removed,
+            _ => SegmentStatus::Detected,
+        };
+
+        Ok(Segment {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            music_id: row.get(2)?,
+            music_title: row.get(3)?,
+            start_time: row.get(4)?,
+            end_time: row.get(5)?,
+            confidence: row.get(6)?,
+            status,
+            segment_type: SegmentType::from_str(&row.get::<_, String>(8).unwrap_or_else(|_| "music".to_string())),
+        })
+    })?;
+
+    let mut segments = Vec::new();
+    for segment in segment_iter {
+        segments.push(segment?);
+    }
+
+    debug!("[DB] 查询到 {} 条 {} 片段: project_id={}", segments.len(), segment_type, project_id);
+    Ok(segments)
 }

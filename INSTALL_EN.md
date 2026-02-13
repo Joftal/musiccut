@@ -23,6 +23,8 @@
 ```
 
 > 🔧 The script will automatically install Node.js dependencies, Python virtual environment, audio-separator, and ONNX Runtime GPU
+>
+> 💡 Person detection requires building person-detector separately, see [Build & Release](#-build--release) section
 
 ### ▶️ Start Development Server
 
@@ -107,6 +109,12 @@ Build a Windows portable package that users can use directly after extraction.
 .\tools\venv\Scripts\python.exe .\scripts\build_audio_separator.py
 ```
 
+4. ✔️ Package person-detector (first build only, for person detection feature):
+
+```powershell
+python .\scripts\build_person_detector.py
+```
+
 ### 🔨 Build Commands
 
 ```powershell
@@ -122,7 +130,8 @@ dist/
 │   ├── 🎯 MusicCut.exe          # Main program
 │   ├── 📂 ffmpeg/               # FFmpeg tools
 │   ├── 📂 models/               # AI models
-│   └── 📂 audio-separator/      # Vocal separation tool
+│   ├── 📂 audio-separator/      # Vocal separation tool
+│   └── 📂 person-detector/      # Person detection tool
 └── 📦 MusicCut_1.0.0_x64.7z     # Release package
 ```
 
@@ -197,6 +206,17 @@ Ensure **Visual Studio Build Tools** is installed:
 | 📂 Storage location | `models/audio-separator/` |
 
 > 💡 Model file is about 100MB, first download requires a stable network connection
+
+---
+
+## 👤 Person Detection Model
+
+| Model | Description |
+|:---|:---|
+| 📥 YOLOv11s | Person detection model, automatically downloaded on first use |
+| 📂 Storage location | `models/person-detector/yolov11s/` |
+
+> 💡 Model file is about 20MB, requires PyTorch + CUDA for GPU acceleration
 
 ---
 

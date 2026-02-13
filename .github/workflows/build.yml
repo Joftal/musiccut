@@ -262,6 +262,15 @@ jobs:
           Write-Host "audio-separator package ready:"
           Get-ChildItem "src-tauri\resources\audio-separator" -ErrorAction SilentlyContinue
 
+      - name: Build person-detector package
+        shell: pwsh
+        run: |
+          Write-Host "Building person-detector..."
+          python .\scripts\build_person_detector.py
+
+          Write-Host "person-detector package ready:"
+          Get-ChildItem "src-tauri\resources\person-detector" -ErrorAction SilentlyContinue
+
       - name: Download MDX-Net model and config files
         shell: pwsh
         run: |
@@ -282,6 +291,22 @@ jobs:
           Invoke-WebRequest -Uri "$dataUrlPrefix/filelists/download_checks.json" -OutFile "$modelDir\download_checks.json"
 
           Write-Host "Model and config files downloaded:"
+          Get-ChildItem $modelDir
+
+      - name: Download YOLOv11s model
+        shell: pwsh
+        run: |
+          $modelDir = "models\person-detector\yolov11s"
+          $modelFile = "yolo11s.pt"
+          $modelUrl = "https://github.com/ultralytics/assets/releases/download/v8.3.0/$modelFile"
+
+          Write-Host "Creating person-detector model directory..."
+          New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
+
+          Write-Host "Downloading YOLOv11s model ($modelFile)..."
+          Invoke-WebRequest -Uri $modelUrl -OutFile "$modelDir\$modelFile"
+
+          Write-Host "Person detection model downloaded:"
           Get-ChildItem $modelDir
 
       - name: Build Tauri application
@@ -324,6 +349,11 @@ jobs:
             Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
           }
 
+          # Copy person-detector
+          if (Test-Path "src-tauri/resources/person-detector") {
+            Copy-Item -Recurse "src-tauri/resources/person-detector" "$outputDir/person-detector"
+          }
+
           # Create 7z split archive (1900MB per volume to stay under GitHub's 2GB limit)
           Push-Location "dist"
           7z a -t7z -mx=9 -v1900m "$archiveName" "$outputFolder"
@@ -331,45 +361,6 @@ jobs:
 
           Write-Host "FFmpeg package created (split volumes):"
           Get-ChildItem "dist/MusicCut_*_x64_FFmpeg.7z*"
-
-      - name: Create NoFFmpeg Package
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $outputDir = "dist/MusicCut-NoFFmpeg"
-          $archiveName = "MusicCut_${version}_x64_NoFFmpeg.7z"
-          $outputFolder = Split-Path -Leaf $outputDir
-
-          Write-Host "Creating NoFFmpeg package..."
-
-          # Create output directory
-          New-Item -ItemType Directory -Path "$outputDir" -Force | Out-Null
-
-          # Copy main exe
-          Copy-Item "src-tauri/target/release/MusicCut.exe" "$outputDir"
-
-          # Copy WebView2Loader.dll if exists
-          if (Test-Path "src-tauri/target/release/WebView2Loader.dll") {
-            Copy-Item "src-tauri/target/release/WebView2Loader.dll" "$outputDir"
-          }
-
-          # Copy models if exist
-          if (Test-Path "models") {
-            Copy-Item -Recurse "models" "$outputDir/models"
-          }
-
-          # Copy audio-separator
-          if (Test-Path "src-tauri/resources/audio-separator") {
-            Copy-Item -Recurse "src-tauri/resources/audio-separator" "$outputDir/audio-separator"
-          }
-
-          # Create 7z split archive (1900MB per volume to stay under GitHub's 2GB limit)
-          Push-Location "dist"
-          7z a -t7z -mx=9 -v1900m "$archiveName" "$outputFolder"
-          Pop-Location
-
-          Write-Host "NoFFmpeg package created (split volumes):"
-          Get-ChildItem "dist/MusicCut_*_x64_NoFFmpeg.7z*"
 
       - name: List artifacts
         shell: pwsh
@@ -385,14 +376,6 @@ jobs:
         with:
           name: MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg
           path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_FFmpeg.7z*
-          compression-level: 0
-          retention-days: 30
-
-      - name: Upload NoFFmpeg Package
-        uses: actions/upload-artifact@v4
-        with:
-          name: MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg
-          path: dist/MusicCut_${{ steps.version.outputs.version }}_x64_NoFFmpeg.7z*
           compression-level: 0
           retention-days: 30
 
@@ -437,29 +420,17 @@ jobs:
 
           # 计算 FFmpeg 包总大小
           FFMPEG_SIZE=0
-          for f in $(find artifacts -type f -name "*FFmpeg.7z*" ! -name "*NoFFmpeg*"); do
+          for f in $(find artifacts -type f -name "*FFmpeg.7z*"); do
             s=$(stat --format="%s" "$f")
             FFMPEG_SIZE=$((FFMPEG_SIZE + s))
           done
           FFMPEG_MB=$(awk "BEGIN {printf \"%.1f\", $FFMPEG_SIZE / 1048576}")
-          FFMPEG_PARTS=$(find artifacts -type f -name "*FFmpeg.7z*" ! -name "*NoFFmpeg*" | wc -l)
-
-          # 计算 NoFFmpeg 包总大小
-          NOFFMPEG_SIZE=0
-          for f in $(find artifacts -type f -name "*NoFFmpeg.7z*"); do
-            s=$(stat --format="%s" "$f")
-            NOFFMPEG_SIZE=$((NOFFMPEG_SIZE + s))
-          done
-          NOFFMPEG_MB=$(awk "BEGIN {printf \"%.1f\", $NOFFMPEG_SIZE / 1048576}")
-          NOFFMPEG_PARTS=$(find artifacts -type f -name "*NoFFmpeg.7z*" | wc -l)
+          FFMPEG_PARTS=$(find artifacts -type f -name "*FFmpeg.7z*" | wc -l)
 
           echo "ffmpeg_size=${FFMPEG_MB} MB" >> $GITHUB_OUTPUT
           echo "ffmpeg_parts=${FFMPEG_PARTS}" >> $GITHUB_OUTPUT
-          echo "noffmpeg_size=${NOFFMPEG_MB} MB" >> $GITHUB_OUTPUT
-          echo "noffmpeg_parts=${NOFFMPEG_PARTS}" >> $GITHUB_OUTPUT
 
           echo "FFmpeg: ${FFMPEG_MB} MB (${FFMPEG_PARTS} parts)"
-          echo "NoFFmpeg: ${NOFFMPEG_MB} MB (${NOFFMPEG_PARTS} parts)"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -484,8 +455,7 @@ jobs:
 
             | 版本 | 说明 | 大小 | 分卷数 | 适用场景 |
             |:---:|:---|:---:|:---:|:---|
-            | **🟢 FFmpeg 完整版** | 包含 FFmpeg + fpcalc | `${{ steps.sizes.outputs.ffmpeg_size }}` | ${{ steps.sizes.outputs.ffmpeg_parts }} | ✅ **推荐大多数用户** |
-            | **🔵 NoFFmpeg 精简版** | 不含 FFmpeg（需自行安装） | `${{ steps.sizes.outputs.noffmpeg_size }}` | ${{ steps.sizes.outputs.noffmpeg_parts }} | 已安装 FFmpeg 的用户 |
+            | **🟢 FFmpeg 完整版** | 包含 FFmpeg + fpcalc | `${{ steps.sizes.outputs.ffmpeg_size }}` | ${{ steps.sizes.outputs.ffmpeg_parts }} | |
 
             ## 🚀 快速开始
 
@@ -493,21 +463,7 @@ jobs:
             2. 将所有分卷放在同一目录，解压 `.001` 文件即可自动合并
             3. 运行 `MusicCut.exe`
 
-            > ⚠️ **重要提示**：两个版本均为分卷压缩，请务必下载同一版本的所有分卷文件后再解压。
-
-            <details>
-            <summary>📖 NoFFmpeg 版本配置指南</summary>
-
-            NoFFmpeg 版本需要自行安装以下组件：
-
-            | 组件 | 下载地址 |
-            |:---|:---|
-            | FFmpeg（含 ffprobe） | [gyan.dev/ffmpeg](https://www.gyan.dev/ffmpeg/builds/) |
-            | fpcalc (Chromaprint) | [acoustid.org/chromaprint](https://acoustid.org/chromaprint) |
-
-            将 `ffmpeg.exe`、`ffprobe.exe`、`fpcalc.exe` 放入程序目录的 `ffmpeg` 文件夹，或添加到系统 PATH。
-
-            </details>
+            > ⚠️ **重要提示**：安装包为分卷压缩，请务必下载同一版本的所有分卷文件后再解压。
           files: |
             artifacts/**/*.7z*
           draft: false

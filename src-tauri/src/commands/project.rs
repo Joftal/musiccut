@@ -2,7 +2,7 @@
 
 use crate::database;
 use crate::error::{AppError, AppResult};
-use crate::utils::{AppState, Project, Segment, generate_id};
+use crate::utils::{AppState, Project, Segment, SegmentStatus, SegmentType, generate_id};
 use crate::video::ffmpeg;
 use chrono::Local;
 use tauri::{State, Window};
@@ -78,42 +78,31 @@ pub async fn get_projects() -> AppResult<Vec<Project>> {
     database::get_all_projects()
 }
 
-/// 删除项目
-#[tauri::command]
-pub async fn delete_project(id: String, state: State<'_, AppState>) -> AppResult<()> {
-    // 清理取消标志，避免内存泄漏
-    super::video::remove_cancel_flag(&id);
-
+/// 清理项目关联的文件（缩略图、预览视频、音频处理文件）
+fn cleanup_project_files(id: &str, app_dir: &std::path::Path) {
     // 删除缩略图文件
-    let thumbnail_path = state.app_dir.join("thumbnails").join(format!("{}.jpg", id));
+    let thumbnail_path = app_dir.join("thumbnails").join(format!("{}.jpg", id));
     if thumbnail_path.exists() {
         if let Err(e) = std::fs::remove_file(&thumbnail_path) {
             info!("删除缩略图失败: {:?}, 错误: {}", thumbnail_path, e);
-        } else {
-            info!("已删除缩略图: {:?}", thumbnail_path);
         }
     }
 
     // 删除预览视频文件
-    let preview_path = state.app_dir.join("previews").join(format!("{}.mp4", id));
+    let preview_path = app_dir.join("previews").join(format!("{}.mp4", id));
     if preview_path.exists() {
         if let Err(e) = std::fs::remove_file(&preview_path) {
             info!("删除预览视频失败: {:?}, 错误: {}", preview_path, e);
-        } else {
-            info!("已删除预览视频: {:?}", preview_path);
         }
     }
 
     // 删除音频处理文件
-    let temp_dir = state.app_dir.join("temp");
+    let temp_dir = app_dir.join("temp");
 
-    // 删除提取的音频文件
     let audio_path = temp_dir.join(format!("{}_audio.wav", id));
     if audio_path.exists() {
         if let Err(e) = std::fs::remove_file(&audio_path) {
             info!("删除音频文件失败: {:?}, 错误: {}", audio_path, e);
-        } else {
-            info!("已删除音频文件: {:?}", audio_path);
         }
     }
 
@@ -122,13 +111,46 @@ pub async fn delete_project(id: String, state: State<'_, AppState>) -> AppResult
     if separated_dir.exists() {
         if let Err(e) = std::fs::remove_dir_all(&separated_dir) {
             info!("删除分离目录失败: {:?}, 错误: {}", separated_dir, e);
-        } else {
-            info!("已删除分离目录: {:?}", separated_dir);
         }
     }
 
+    // 删除人物检测输出目录（包含检测结果 JSON 等文件）
+    let detection_dir = temp_dir.join(format!("{}_detection", id));
+    if detection_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&detection_dir) {
+            info!("删除检测目录失败: {:?}, 错误: {}", detection_dir, e);
+        }
+    }
+}
+
+/// 删除项目
+#[tauri::command]
+pub async fn delete_project(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    // 清理取消标志，避免内存泄漏
+    super::video::remove_cancel_flag(&id);
+
+    // 清理关联文件
+    cleanup_project_files(&id, &state.app_dir);
+
     // 删除数据库记录
     database::delete_project(&id)
+}
+
+/// 删除所有项目
+#[tauri::command]
+pub async fn delete_all_projects(state: State<'_, AppState>) -> AppResult<()> {
+    // 获取所有项目 ID，用于清理文件
+    let projects = database::get_all_projects()?;
+
+    for project in &projects {
+        super::video::remove_cancel_flag(&project.id);
+        cleanup_project_files(&project.id, &state.app_dir);
+    }
+
+    info!("删除所有项目: {} 个", projects.len());
+
+    // 一次性清空数据库
+    database::clear_all_projects()
 }
 
 /// 更新片段
@@ -141,9 +163,31 @@ pub async fn update_segments(
     database::get_project_by_id(&project_id)?
         .ok_or_else(|| AppError::NotFound(format!("项目不存在: {}", project_id)))?;
 
+    // 记录前端传入的片段详情
+    let detected = segments.iter().filter(|s| s.status == SegmentStatus::Detected).count();
+    let removed = segments.iter().filter(|s| s.status == SegmentStatus::Removed).count();
+    let music = segments.iter().filter(|s| s.segment_type == SegmentType::Music).count();
+    let person = segments.iter().filter(|s| s.segment_type == SegmentType::Person).count();
+    info!("[UPDATE_SEGMENTS] project_id={}, 写入片段: 总计={}, detected={}, removed={}, music={}, person={}",
+        project_id, segments.len(), detected, removed, music, person);
+    for (i, s) in segments.iter().enumerate() {
+        info!(
+            "[UPDATE_SEGMENTS]   片段[{}]: id={}, {:.2}s - {:.2}s (时长 {:.2}s), status={:?}, type={:?}",
+            i, s.id, s.start_time, s.end_time, s.end_time - s.start_time, s.status, s.segment_type
+        );
+    }
+
     // 删除旧片段并插入新片段
     database::delete_segments_by_project(&project_id)?;
     database::batch_update_segments(&segments)?;
+
+    // 验证写入后的数据库状态
+    let db_segments = database::get_segments_by_project(&project_id)?;
+    info!("[UPDATE_SEGMENTS] 写入后数据库验证: {} 个片段", db_segments.len());
+    if db_segments.len() != segments.len() {
+        error!("[UPDATE_SEGMENTS] ⚠ 数据库片段数 ({}) 与传入片段数 ({}) 不一致!",
+            db_segments.len(), segments.len());
+    }
 
     // 更新项目时间
     if let Some(mut project) = database::get_project_by_id(&project_id)? {

@@ -1,4 +1,12 @@
-// 人声分离模块 - 使用 audio-separator
+// 人声分离模块
+//
+// 调用外部 audio-separator 程序（基于 MDX-Net ONNX 模型）对音频进行人声/伴奏分离。
+// 支持 GPU 自动检测加速，通过 stderr 读取进度，支持中途取消。
+//
+// 命令解析优先级：
+// 1. 打包版本: exe_dir/audio-separator/audio-separator.exe
+// 2. Resources: exe_dir/resources/audio-separator/audio-separator.exe
+// 3. 系统 PATH: audio-separator
 
 use crate::config::{SeparationConfig, AccelerationMode, GpuType};
 use crate::error::{AppError, AppResult};
@@ -9,8 +17,94 @@ use std::process::Stdio;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::{info, error, debug};
+
+/// 分离输出文件搜索结果
+pub struct SeparationOutputFiles {
+    pub vocals_path: Option<PathBuf>,
+    pub accompaniment_path: Option<PathBuf>,
+}
+
+/// 在输出目录中查找分离后的人声和伴奏文件
+///
+/// 按以下优先级搜索：
+/// 1. 标准格式: `{audio_stem}_(Vocals|Instrumental)_{model_name}.{ext}`
+/// 2. 简单格式: `{audio_stem}_(Vocals|Instrumental).{ext}`
+/// 3. 旧版兼容格式
+/// 4. 模糊匹配: 文件名包含 vocal/voice 或 instrument/no_vocal
+pub fn find_separation_outputs(
+    output_dir: &str,
+    audio_stem: &str,
+    model_filename: &str,
+    output_ext: &str,
+) -> SeparationOutputFiles {
+    let model_name = model_filename
+        .replace(".onnx", "")
+        .replace(".ckpt", "")
+        .replace(".yaml", "");
+
+    let mut possible_vocals = vec![
+        format!("{}_(Vocals)_{}.{}", audio_stem, model_name, output_ext),
+        format!("{}_(Vocals).{}", audio_stem, output_ext),
+        format!("{}_Vocals.{}", audio_stem, output_ext),
+    ];
+    let mut possible_instrumental = vec![
+        format!("{}_(Instrumental)_{}.{}", audio_stem, model_name, output_ext),
+        format!("{}_(Instrumental).{}", audio_stem, output_ext),
+        format!("{}_Instrumental.{}", audio_stem, output_ext),
+    ];
+
+    // 旧版本兼容格式
+    possible_vocals.push(format!("{}_(Vocals)_UVR-MDX-NET-Inst_HQ_3.{}", audio_stem, output_ext));
+    possible_instrumental.push(format!("{}_(Instrumental)_UVR-MDX-NET-Inst_HQ_3.{}", audio_stem, output_ext));
+
+    // 列出输出目录中的文件
+    let found_files: Vec<String> = std::fs::read_dir(output_dir)
+        .map(|entries| {
+            entries.flatten()
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let dir = Path::new(output_dir);
+
+    // 精确匹配 → 模糊匹配
+    let vocals_path = possible_vocals.iter()
+        .map(|name| dir.join(name))
+        .find(|p| p.exists() && p.metadata().map(|m| m.len() > 0).unwrap_or(false))
+        .or_else(|| {
+            found_files.iter()
+                .find(|f| {
+                    f.contains(audio_stem)
+                        && (f.to_lowercase().contains("vocal")
+                            || f.to_lowercase().contains("voice"))
+                })
+                .map(|f| dir.join(f))
+                .filter(|p| p.metadata().map(|m| m.len() > 0).unwrap_or(false))
+        });
+
+    let accompaniment_path = possible_instrumental.iter()
+        .map(|name| dir.join(name))
+        .find(|p| p.exists() && p.metadata().map(|m| m.len() > 0).unwrap_or(false))
+        .or_else(|| {
+            found_files.iter()
+                .find(|f| {
+                    f.contains(audio_stem)
+                        && (f.to_lowercase().contains("instrument")
+                            || f.to_lowercase().contains("no_vocal")
+                            || f.to_lowercase().contains("no vocal"))
+                })
+                .map(|f| dir.join(f))
+                .filter(|p| p.metadata().map(|m| m.len() > 0).unwrap_or(false))
+        });
+
+    SeparationOutputFiles {
+        vocals_path,
+        accompaniment_path,
+    }
+}
 
 /// 进度回调类型
 pub type ProgressCallback = Box<dyn Fn(f32, &str) + Send + Sync>;
@@ -21,7 +115,10 @@ pub struct GpuCapabilities {
     pub onnx_gpu_available: bool,
 }
 
-/// 人声分离
+/// 执行人声分离
+///
+/// 启动 audio-separator 子进程，通过 stderr 读取进度，等待完成后查找输出文件。
+/// 支持通过 cancel_flag 中途取消。
 pub fn separate_vocals(
     audio_path: &str,
     output_dir: &str,
@@ -33,37 +130,37 @@ pub fn separate_vocals(
     cancel_flag: Arc<AtomicBool>,
     project_id: &str,
 ) -> AppResult<SeparationResult> {
-    info!("=== 开始人声分离 (audio-separator) ===");
-    info!("音频路径: {}", audio_path);
-    info!("输出目录: {}", output_dir);
+    info!("[SEPARATOR] === 开始人声分离 ===");
+    info!("[SEPARATOR] 音频路径: {}", audio_path);
+    info!("[SEPARATOR] 输出目录: {}", output_dir);
 
     // 获取当前选择的模型信息
     let model = models::get_model_by_id(&config.selected_model_id)
         .or_else(|| {
-            info!("未找到模型 {}，尝试使用默认模型", config.selected_model_id);
+            info!("[SEPARATOR] 未找到模型 {}，尝试使用默认模型", config.selected_model_id);
             models::get_available_models().into_iter().next()
         })
         .ok_or_else(|| AppError::Config("没有可用的分离模型，请先下载模型".to_string()))?;
 
-    info!("使用模型: {} ({})", model.name, model.filename);
-    info!("模型架构: {:?}", model.architecture);
-    info!("GPU 类型: {:?}", gpu_type);
-    info!("加速模式: {:?}", acceleration);
-    info!("GPU 能力: ONNX_GPU={}", gpu_caps.onnx_gpu_available);
+    info!("[SEPARATOR] 使用模型: {} ({})", model.name, model.filename);
+    info!("[SEPARATOR] 模型架构: {:?}", model.architecture);
+    info!("[SEPARATOR] GPU 类型: {:?}", gpu_type);
+    info!("[SEPARATOR] 加速模式: {:?}", acceleration);
+    info!("[SEPARATOR] GPU 能力: ONNX_GPU={}", gpu_caps.onnx_gpu_available);
 
     // 检查音频文件是否存在
     if !Path::new(audio_path).exists() {
-        error!("音频文件不存在: {}", audio_path);
+        error!("[SEPARATOR] 音频文件不存在: {}", audio_path);
         return Err(AppError::NotFound(format!("音频文件不存在: {}", audio_path)));
     }
-    info!("音频文件存在: {}", audio_path);
+    info!("[SEPARATOR] 音频文件存在: {}", audio_path);
 
     // 确保输出目录存在
     std::fs::create_dir_all(output_dir)?;
-    info!("输出目录已创建: {}", output_dir);
+    info!("[SEPARATOR] 输出目录已创建: {}", output_dir);
 
     // audio-separator 会自动检测并使用可用的设备 (GPU 优先，否则 CPU)
-    info!("audio-separator 将自动选择最佳设备");
+    info!("[SEPARATOR] audio-separator 将自动选择最佳设备");
 
     if let Some(ref cb) = progress_callback {
         cb(0.0, "准备分离音频...");
@@ -96,23 +193,23 @@ pub fn separate_vocals(
     if use_gpu {
         // ONNX 模型：audio-separator 自动检测并使用最佳 GPU 加速
         // 不需要手动指定参数
-        info!("ONNX 模型将自动使用 GPU 加速（如果可用）");
+        info!("[SEPARATOR] ONNX 模型将自动使用 GPU 加速（如果可用）");
     } else {
-        info!("强制使用 CPU 模式");
+        info!("[SEPARATOR] 强制使用 CPU 模式");
     }
 
-    info!("audio-separator 命令: audio-separator {}", args.join(" "));
+    info!("[SEPARATOR] 命令: audio-separator {}", args.join(" "));
 
     if let Some(ref cb) = progress_callback {
         cb(0.05, "启动 audio-separator...");
     }
 
     // 执行 audio-separator
-    info!("正在启动 audio-separator 进程...");
+    info!("[SEPARATOR] 正在启动 audio-separator 进程...");
 
     // 获取 audio-separator 路径（优先使用打包版本）
     let separator_path = resolve_separator_path();
-    info!("audio-separator 路径: {}", separator_path);
+    info!("[SEPARATOR] audio-separator 路径: {}", separator_path);
 
     // 构建命令
     let mut cmd = hidden_command(&separator_path);
@@ -124,15 +221,15 @@ pub fn separate_vocals(
     // 注意：CUDA_VISIBLE_DEVICES="-1" 才能真正禁用 GPU，空字符串无效
     if !use_gpu {
         cmd.env("CUDA_VISIBLE_DEVICES", "-1");
-        info!("已设置 CUDA_VISIBLE_DEVICES=\"-1\" 禁用 GPU");
+        info!("[SEPARATOR] 已设置 CUDA_VISIBLE_DEVICES=\"-1\" 禁用 GPU");
     }
 
     let child = cmd.spawn()
         .map_err(|e| {
-            error!("启动 audio-separator 失败: {}", e);
+            error!("[SEPARATOR] 启动 audio-separator 失败: {}", e);
             AppError::VocalSeparation(format!("启动 audio-separator 失败: {}", e))
         })?;
-    info!("audio-separator 进程已启动");
+    info!("[SEPARATOR] 进程已启动, project_id={}", project_id);
 
     // 注册子进程句柄，支持即时取消（直接 kill）
     let child_handle = crate::commands::video::register_child_process(project_id, child);
@@ -214,7 +311,7 @@ pub fn separate_vocals(
                     if n == 0 { break; }
                     let line = line_buffer.trim_end();
                     if !line.is_empty() {
-                        debug!("audio-separator stderr: {}", line);
+                        debug!("[SEPARATOR] stderr: {}", line);
                         if !error_output.is_empty() {
                             error_output.push('\n');
                         }
@@ -241,14 +338,14 @@ pub fn separate_vocals(
                     Ok(_) => {
                         let line = line_buffer.trim_end();
                         if !line.is_empty() {
-                            debug!("audio-separator stderr: {}", line);
+                            debug!("[SEPARATOR] stderr: {}", line);
                             if !error_output.is_empty() {
                                 error_output.push('\n');
                             }
                             error_output.push_str(line);
                             if line.contains('%') {
                                 if let Some(progress) = parse_progress(line) {
-                                    debug!("分离进度: {:.1}%", progress * 100.0);
+                                    debug!("[SEPARATOR] 分离进度: {:.1}%", progress * 100.0);
                                     if let Some(ref cb) = progress_callback {
                                         cb(progress, line);
                                     }
@@ -268,7 +365,7 @@ pub fn separate_vocals(
                 }
             }
             Err(e) => {
-                error!("检查进程状态失败: {}", e);
+                error!("[SEPARATOR] 检查进程状态失败: {}", e);
                 if let Ok(mut guard) = child_handle.lock() {
                     if let Some(ref mut child) = *guard {
                         let _ = child.kill();
@@ -279,7 +376,7 @@ pub fn separate_vocals(
         }
     }
 
-    info!("等待 audio-separator 进程结束...");
+    info!("[SEPARATOR] 等待 audio-separator 进程结束...");
     let status = {
         let mut guard = child_handle.lock().unwrap();
         if let Some(ref mut child) = *guard {
@@ -288,11 +385,11 @@ pub fn separate_vocals(
             return Err(AppError::Cancelled);
         }
     };
-    info!("audio-separator 进程退出码: {:?}", status.code());
+    info!("[SEPARATOR] 进程退出码: {:?}", status.code());
 
     if !status.success() {
-        error!("audio-separator 处理失败，退出码: {:?}", status.code());
-        error!("audio-separator 错误输出: {}", error_output);
+        error!("[SEPARATOR] 处理失败，退出码: {:?}", status.code());
+        error!("[SEPARATOR] 错误输出: {}", error_output);
         let error_msg = if error_output.is_empty() {
             "audio-separator 处理失败（无详细错误信息）".to_string()
         } else {
@@ -301,104 +398,47 @@ pub fn separate_vocals(
         return Err(AppError::VocalSeparation(error_msg));
     }
 
-    info!("audio-separator 处理成功");
+    info!("[SEPARATOR] 处理成功");
 
     if let Some(ref cb) = progress_callback {
         cb(1.0, "分离完成");
     }
 
     // 查找输出文件
-    // audio-separator 输出格式: {filename}_(Vocals).{ext} 和 {filename}_(Instrumental).{ext}
     let audio_filename = Path::new(audio_path)
         .file_stem()
         .unwrap_or_default()
         .to_string_lossy();
 
-    let output_ext = &config.output_format;
+    let output = find_separation_outputs(
+        output_dir,
+        &audio_filename,
+        &model.filename,
+        &config.output_format,
+    );
+    info!("[SEPARATOR] 查找分离输出: vocals={:?}, accompaniment={:?}",
+        output.vocals_path, output.accompaniment_path);
 
-    // 尝试多种可能的文件名格式
-    // 不同模型输出的文件名格式不同
-    // audio-separator 输出格式: {filename}_(Stem)_{model_name}.{ext}
-    let model_name_without_ext = model.filename
-        .replace(".onnx", "")
-        .replace(".ckpt", "")
-        .replace(".yaml", "");
-
-    let mut possible_vocals_names = vec![
-        // 标准格式: filename_(Vocals)_modelname.ext
-        format!("{}_(Vocals)_{}.{}", audio_filename, model_name_without_ext, output_ext),
-        // 简单格式
-        format!("{}_(Vocals).{}", audio_filename, output_ext),
-        format!("{}_Vocals.{}", audio_filename, output_ext),
-    ];
-
-    let mut possible_instrumental_names = vec![
-        // 标准格式: filename_(Instrumental)_modelname.ext
-        format!("{}_(Instrumental)_{}.{}", audio_filename, model_name_without_ext, output_ext),
-        // 简单格式
-        format!("{}_(Instrumental).{}", audio_filename, output_ext),
-        format!("{}_Instrumental.{}", audio_filename, output_ext),
-    ];
-
-    // 添加旧版本兼容的文件名格式
-    possible_vocals_names.push(format!("{}_(Vocals)_UVR-MDX-NET-Inst_HQ_3.{}", audio_filename, output_ext));
-    possible_instrumental_names.push(format!("{}_(Instrumental)_UVR-MDX-NET-Inst_HQ_3.{}", audio_filename, output_ext));
-
-    // 列出输出目录中的文件
-    let mut found_files: Vec<String> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(output_dir) {
-        for entry in entries.flatten() {
-            let filename = entry.file_name().to_string_lossy().to_string();
-            found_files.push(filename);
-        }
-    }
-    info!("输出目录中的文件: {:?}", found_files);
-
-    // 查找人声文件
-    let vocals_path = possible_vocals_names.iter()
-        .map(|name| Path::new(output_dir).join(name))
-        .find(|path| path.exists())
-        .or_else(|| {
-            // 如果预定义的名称都不存在，尝试模糊匹配
-            found_files.iter()
-                .find(|f| f.contains(&audio_filename.to_string()) &&
-                         (f.to_lowercase().contains("vocal") || f.to_lowercase().contains("voice")))
-                .map(|f| Path::new(output_dir).join(f))
-        });
-
-    // 查找伴奏文件
-    let accompaniment_path = possible_instrumental_names.iter()
-        .map(|name| Path::new(output_dir).join(name))
-        .find(|path| path.exists())
-        .or_else(|| {
-            // 如果预定义的名称都不存在，尝试模糊匹配
-            found_files.iter()
-                .find(|f| f.contains(&audio_filename.to_string()) &&
-                         (f.to_lowercase().contains("instrument") ||
-                          f.to_lowercase().contains("no_vocal") ||
-                          f.to_lowercase().contains("no vocal")))
-                .map(|f| Path::new(output_dir).join(f))
-        });
-
-    let vocals_path = match vocals_path {
+    let vocals_path = match output.vocals_path {
         Some(p) => p,
         None => {
-            error!("人声文件不存在，已搜索的文件名: {:?}", possible_vocals_names);
-            error!("目录中的文件: {:?}", found_files);
-            return Err(AppError::VocalSeparation(format!(
-                "人声文件不存在，目录中的文件: {:?}",
-                found_files
-            )));
+            error!("[SEPARATOR] 人声文件不存在");
+            return Err(AppError::VocalSeparation(
+                "人声文件不存在".to_string()
+            ));
         }
     };
-    info!("人声文件已生成: {}", vocals_path.display());
+    info!("[SEPARATOR] 人声文件已生成: {}", vocals_path.display());
 
-    let accompaniment_path = accompaniment_path
-        .unwrap_or_else(|| Path::new(output_dir).join(format!("{}_(Instrumental).{}", audio_filename, output_ext)));
-    info!("伴奏文件路径: {}", accompaniment_path.display());
+    let accompaniment_path = output.accompaniment_path
+        .unwrap_or_else(|| Path::new(output_dir).join(format!("{}_(Instrumental).{}", audio_filename, &config.output_format)));
+    info!("[SEPARATOR] 伴奏文件路径: {}", accompaniment_path.display());
 
     // 获取音频时长
     let duration = get_audio_duration(&vocals_path.to_string_lossy())?;
+
+    info!("[SEPARATOR] === 人声分离完成 === 人声={}, 伴奏={}, 时长={:.1}s",
+        vocals_path.display(), accompaniment_path.display(), duration);
 
     Ok(SeparationResult {
         vocals_path: vocals_path.to_string_lossy().to_string(),
@@ -419,8 +459,10 @@ fn parse_progress(line: &str) -> Option<f32> {
     None
 }
 
-/// 解析 audio-separator 路径
-/// 优先使用打包版本，否则使用系统 PATH 中的版本
+/// 解析 audio-separator 可执行文件路径
+///
+/// 优先使用打包版本，否则回退到系统 PATH。
+/// 返回 (程序路径)
 pub fn resolve_separator_path() -> String {
     use crate::utils::get_exe_dir;
 
@@ -428,16 +470,19 @@ pub fn resolve_separator_path() -> String {
         // 检查打包版本：exe目录/audio-separator/audio-separator.exe
         let bundled_path = exe_dir.join("audio-separator").join("audio-separator.exe");
         if bundled_path.exists() {
+            info!("[SEPARATOR] 使用打包版本: {}", bundled_path.display());
             return bundled_path.to_string_lossy().to_string();
         }
 
         // 检查 resources 目录（开发模式）
         let resources_path = exe_dir.join("resources").join("audio-separator").join("audio-separator.exe");
         if resources_path.exists() {
+            info!("[SEPARATOR] 使用 resources 版本: {}", resources_path.display());
             return resources_path.to_string_lossy().to_string();
         }
     }
 
     // 回退到系统 PATH
+    info!("[SEPARATOR] 使用系统 PATH: audio-separator");
     "audio-separator".to_string()
 }
