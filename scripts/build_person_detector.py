@@ -59,12 +59,14 @@ for pkg in nvidia_packages:
 
 binaries += collect_dynamic_libs('torch')
 binaries += collect_dynamic_libs('PIL')
+binaries += collect_dynamic_libs('torchvision')
 
 hiddenimports = []
 hiddenimports += collect_submodules('ultralytics')
 hiddenimports += collect_submodules('torch')
 hiddenimports += collect_submodules('numpy')
 hiddenimports += collect_submodules('PIL')
+hiddenimports += collect_submodules('torchvision')
 hiddenimports += [
     'cv2',
     'tqdm',
@@ -85,7 +87,6 @@ a = Analysis(
         'IPython',
         'jupyter',
         'torchaudio',
-        'torchvision',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -173,8 +174,8 @@ def install_dependencies():
     """Install dependencies"""
     pip = str(get_pip())
 
-    print("Installing PyTorch CUDA 12.8...")
-    if not run_command([pip, "install", "torch==2.10.0", "--index-url", "https://download.pytorch.org/whl/cu128"]):
+    print("Installing PyTorch + TorchVision (CUDA 12.8)...")
+    if not run_command([pip, "install", "torch==2.10.0", "torchvision==0.25.0", "--index-url", "https://download.pytorch.org/whl/cu128"]):
         return False
 
     print("Installing ultralytics...")
