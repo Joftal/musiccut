@@ -29,6 +29,7 @@ block_cipher = None
 
 datas = []
 datas += collect_data_files('ultralytics')
+datas += collect_data_files('numpy')
 
 binaries = []
 # Collect NVIDIA CUDA runtime DLLs
@@ -60,8 +61,8 @@ binaries += collect_dynamic_libs('torch')
 hiddenimports = []
 hiddenimports += collect_submodules('ultralytics')
 hiddenimports += collect_submodules('torch')
+hiddenimports += collect_submodules('numpy')
 hiddenimports += [
-    'numpy',
     'cv2',
     'tqdm',
 ]

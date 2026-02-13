@@ -31,6 +31,7 @@ block_cipher = None
 datas = []
 datas += collect_data_files('audio_separator')
 datas += collect_data_files('onnxruntime')
+datas += collect_data_files('numpy')
 
 # Collect NVIDIA CUDA runtime DLLs from nvidia-* pip packages
 # These are required by onnxruntime_providers_cuda.dll at runtime
@@ -74,8 +75,8 @@ hiddenimports += collect_submodules('onnxruntime')
 hiddenimports += collect_submodules('torch')
 hiddenimports += collect_submodules('torchvision')
 hiddenimports += collect_submodules('onnx2torch')
+hiddenimports += collect_submodules('numpy')
 hiddenimports += [
-    'numpy',
     'scipy',
     'librosa',
     'soundfile',
